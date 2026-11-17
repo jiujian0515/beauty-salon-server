@@ -1,0 +1,60 @@
+# ============================================================
+# 主配置文件（所有环境共享的配置）
+# 前端同学可类比为：不区分 dev/prod 的「公共配置」
+# YAML 语法：缩进用空格，key: value，层级靠缩进表示
+# ============================================================
+
+spring:
+  # 默认激活 dev 环境（即额外加载 application-dev.yml）
+  profiles:
+    active: dev
+  application:
+    name: beauty-salon-server
+  # Jackson JSON 序列化配置
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+  # Flyway 数据库迁移：启动时自动执行 db/migration 目录下的 SQL
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # 已有数据的库也允许从当前版本开始迁移（首次全新库无影响）
+    baseline-on-migrate: true
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  configuration:
+    # 下划线转驼峰：数据库字段 slot_date -> Java 属性 slotDate
+    map-underscore-to-camel-case: true
+    # 打印 SQL 日志到控制台（开发调试很有用，生产可关闭）
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    banner: false
+    db-config:
+      # 逻辑删除字段：删除时实际执行 UPDATE deleted=1，而不是物理 DELETE
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# Sa-Token 鉴权配置
+sa-token:
+  # token 放在请求头 Authorization 中（前端登录后携带该头）
+  token-name: Authorization
+  # token 有效期（秒）：30 天
+  timeout: 2592000
+  # 是否允许同一账号多地同时登录
+  is-concurrent: true
+  # 是否打印 Sa-Token 日志
+  is-log: false
+
+# 业务自定义配置（后续可在代码里通过 @Value 或 @ConfigurationProperties 读取）
+app:
+  timezone: Asia/Shanghai
+  payment:
+    mock: true              # 演示环境开启模拟支付
+    expire-minutes: 120     # 待支付占位时限（分钟）
+    cancel-ahead-hours: 24  # 可取消提前量（小时）
+
+# 服务监听端口
+server:
+  port: 8080

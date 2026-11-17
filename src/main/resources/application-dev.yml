@@ -1,0 +1,17 @@
+# ============================================================
+# 开发环境配置（本地开发使用，通过 spring.profiles.active: dev 激活）
+# ============================================================
+
+spring:
+  datasource:
+    # 本地开发直连本机 MySQL 8（无需 Docker）
+    # 连接账号由 scripts/setup-local-db.sql 创建，见该脚本
+    # url 参数说明：
+    #   serverTimezone=Asia/Shanghai  时区
+    #   useUnicode/characterEncoding   中文编码
+    #   allowPublicKeyRetrieval        允许客户端获取公钥（MySQL 8 需要）
+    #   useSSL=false                   本地关闭 SSL
+    url: jdbc:mysql://localhost:3306/beauty_salon?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: beautysalon
+    password: beautysalon123
+    driver-class-name: com.mysql.cj.jdbc.Driver

@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      ============================================================
+      前端同学类比：pom.xml ≈ package.json
+      - <parent> 相当于继承了一个官方的「脚手架模板」，统一锁定了依赖版本
+      - <dependencies> 相当于 dependencies（生产依赖）
+      - <build> 相当于 scripts（构建脚本配置）
+      ============================================================
+    -->
+
+    <!-- 继承 Spring Boot 官方父工程：统一管理各依赖版本，避免手动指定一堆版本号 -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
+
+    <!-- 项目坐标：group(组织) + artifactId(项目名) + version(版本) -->
+    <groupId>com.beautysalon</groupId>
+    <artifactId>beauty-salon-server</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>beauty-salon-server</name>
+    <description>美容院轻量 SaaS 系统 - 后台服务</description>
+
+    <properties>
+        <!-- 编译与运行使用的 Java 版本（本机已安装 JDK17） -->
+        <java.version>17</java.version>
+        <mybatis-plus.version>3.5.9</mybatis-plus.version>
+        <sa-token.version>1.45.0</sa-token.version>
+    </properties>
+
+    <dependencies>
+        <!--
+          Spring Web：提供 REST 接口能力
+          （内嵌 Tomcat 服务器 + @RestController 注解等）
+          相当于前端的「框架核心 + HTTP 服务器」
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!--
+          参数校验：@Valid、@NotNull、@NotBlank 等注解
+          相当于前端表单校验，只不过在服务端做
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!--
+          MyBatis-Plus：ORM 框架，封装数据库增删改查
+          类比：把 SQL 操作封装成像「axios 请求库」一样好用的 API
+          （注意用 spring-boot3-starter，适配 Spring Boot 3.x）
+        -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+            <version>${mybatis-plus.version}</version>
+        </dependency>
+
+        <!--
+          MyBatis-Plus 分页插件所需的 SQL 解析器
+          注意：3.5.9 起 MyBatis-Plus 把 jsqlparser 拆成了独立依赖，
+          不引入它的话 PaginationInnerInterceptor（分页）会找不到类
+        -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-jsqlparser</artifactId>
+            <version>${mybatis-plus.version}</version>
+        </dependency>
+
+        <!-- MySQL 数据库驱动（runtime：只在运行时需要，编译期不依赖） -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!--
+          Flyway：数据库版本迁移工具
+          启动时自动执行 src/main/resources/db/migration 下的 SQL 文件建表
+          类比：自动执行数据库的「初始化脚本」，且带版本号可追踪
+        -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+        </dependency>
+
+        <!--
+          Sa-Token：轻量鉴权框架
+          提供登录态、@SaCheckLogin（需登录）、@SaCheckRole（需角色）等注解
+        -->
+        <dependency>
+            <groupId>cn.dev33</groupId>
+            <artifactId>sa-token-spring-boot3-starter</artifactId>
+            <version>${sa-token.version}</version>
+        </dependency>
+
+        <!--
+          Lombok：编译期自动生成 getter/setter/构造器等样板代码
+          让实体类不用手写一大堆 get/set 方法
+        -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- 测试依赖（test 范围：只在跑测试时使用） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+              Spring Boot 打包插件：执行 mvn package 时生成可独立运行的 jar 包
+              （相当于前端 npm run build 产出可部署产物）
+            -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <!-- Lombok 只在编译期使用，不打进最终 jar -->
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
