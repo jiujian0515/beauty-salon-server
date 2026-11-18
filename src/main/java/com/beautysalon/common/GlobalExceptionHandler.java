@@ -19,11 +19,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    /** 业务异常：返回对应的业务错误码 */
+    /** 业务异常：返回对应错误码（若抛异常时传了自定义信息，则用自定义信息） */
     @ExceptionHandler(BusinessException.class)
     public Result<Void> handleBusiness(BusinessException e) {
         log.warn("业务异常：{}", e.getMessage());
-        return Result.fail(e.getErrorCode());
+        return Result.fail(e.getErrorCode().getCode(), e.getMessage());
     }
 
     /** 参数校验失败（Controller 方法参数上用了 @Valid + @NotNull 等注解时触发） */

@@ -109,6 +109,16 @@
         </dependency>
 
         <!--
+          Spring Security 的「密码加密」工具（只引入 crypto 轻量模块，不引入完整安全框架）
+          提供 BCryptPasswordEncoder，用于密码哈希存储与校验
+          版本由 Spring Boot 父工程统一管理，无需手动指定
+        -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
+        <!--
           Lombok：编译期自动生成 getter/setter/构造器等样板代码
           让实体类不用手写一大堆 get/set 方法
         -->
