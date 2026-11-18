@@ -2,6 +2,7 @@ package com.beautysalon.model.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
@@ -45,6 +46,18 @@ public class User {
 
     /** 状态：1启用 0禁用 */
     private Integer status;
+
+    /**
+     * 逻辑删除标记：1已删除 0正常
+     *
+     * <p>{@code @TableLogic}：声明这是逻辑删除字段。加上它之后：</p>
+     * <ul>
+     *   <li>{@code deleteById(id)} 会变成 {@code UPDATE user SET deleted=1 ...}（不是真删）</li>
+     *   <li>所有查询自动追加 {@code AND deleted=0}，被删的数据查不出来</li>
+     * </ul>
+     */
+    @TableLogic
+    private Integer deleted;
 
     /** 创建时间 */
     private LocalDateTime createdAt;

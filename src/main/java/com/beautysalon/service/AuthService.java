@@ -18,8 +18,10 @@ public interface AuthService {
     /**
      * 登录：校验手机号 + 密码，成功则生成登录令牌
      *
+     * <p>只返回 token；用户信息请调用 {@link #currentUser()}（GET /api/v1/auth/me）获取。</p>
+     *
      * @param request 登录请求（手机号 + 密码）
-     * @return 登录结果（token + 用户信息）
+     * @return 登录结果（仅 token）
      */
     LoginResponse login(LoginRequest request);
 

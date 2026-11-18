@@ -4,6 +4,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.beautysalon.common.BusinessException;
 import com.beautysalon.common.ErrorCode;
+import com.beautysalon.common.LoginContext;
 import com.beautysalon.mapper.UserMapper;
 import com.beautysalon.model.dto.LoginRequest;
 import com.beautysalon.model.dto.LoginResponse;
@@ -24,10 +25,14 @@ public class AuthServiceImpl implements AuthService {
     /** 依赖注入的两个对象，通过构造器传入（Spring 启动时自动注入） */
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
+    private final LoginContext loginContext;
 
-    public AuthServiceImpl(UserMapper userMapper, PasswordEncoder passwordEncoder) {
+    public AuthServiceImpl(UserMapper userMapper,
+                           PasswordEncoder passwordEncoder,
+                           LoginContext loginContext) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
+        this.loginContext = loginContext;
     }
 
     /**
@@ -36,7 +41,7 @@ public class AuthServiceImpl implements AuthService {
      * 2. 校验用户存在 + 密码正确（BCrypt 比对）
      * 3. 校验账号状态
      * 4. 调用 Sa-Token 登录，生成 token
-     * 5. 返回 token + 用户信息
+     * 5. 只返回 token（用户信息请调 GET /api/v1/auth/me）
      */
     @Override
     public LoginResponse login(LoginRequest request) {
@@ -58,12 +63,9 @@ public class AuthServiceImpl implements AuthService {
         // 4. Sa-Token 登录：以用户 id 作为登录标识，内部生成 token 并维护登录态
         StpUtil.login(user.getId());
 
-        // 5. 组装返回结果
+        // 5. 只返回 token：用户信息由 /api/v1/auth/me 统一提供，避免两处数据不一致
         return LoginResponse.builder()
                 .token(StpUtil.getTokenValue())   // 当前登录生成的 token
-                .userId(user.getId())
-                .nickname(user.getNickname())
-                .role(user.getRole())
                 .build();
     }
 
@@ -91,25 +93,10 @@ public class AuthServiceImpl implements AuthService {
      */
     @Override
     public UserInfoResponse currentUser() {
-        // 1. 从 token 解析出当前登录用户 id
-        long userId = StpUtil.getLoginIdAsLong();
+        // 从 token 解析当前用户 id，并校验「账号仍存在且未被禁用」
+        // 这段通用逻辑已抽到 LoginContext，多处复用
+        User user = loginContext.currentUser();
 
-        // 2. 按 id 查用户（selectById 是 MyBatis-Plus 自带的主键查询方法）
-        User user = userMapper.selectById(userId);
-
-        // 3. 用户已被删除：token 还在但账号没了，强制登出
-        if (user == null) {
-            StpUtil.logout();
-            throw new BusinessException(ErrorCode.NOT_LOGIN, "账号不存在，请重新登录");
-        }
-
-        // 4. 账号被禁用：同样清掉登录态，避免继续拿着有效 token 访问
-        if (user.getStatus() == null || user.getStatus() != 1) {
-            StpUtil.logout();
-            throw new BusinessException(ErrorCode.NO_PERMISSION, "账号已被禁用");
-        }
-
-        // 5. 组装返回（只暴露安全字段，不含 passwordHash）
         return UserInfoResponse.builder()
                 .userId(user.getId())
                 .merchantId(user.getMerchantId())

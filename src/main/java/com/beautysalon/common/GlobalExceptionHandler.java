@@ -4,6 +4,7 @@ import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.exception.NotRoleException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -55,5 +56,18 @@ public class GlobalExceptionHandler {
     public Result<Void> handleUnknown(Exception e) {
         log.error("系统异常", e);
         return Result.fail(ErrorCode.SYSTEM_ERROR);
+    }
+
+    /**
+     * 数据库唯一约束冲突（比如插入重复的手机号）
+     *
+     * <p>为什么要有这个兜底？因为「先查询再插入」存在并发窗口：
+     * 两个请求同时查到「手机号不存在」，然后同时插入，就会有一个撞上唯一索引。
+     * 这种异常如果落到通用兜底，前端只会看到「系统异常」，很难排查。</p>
+     */
+    @ExceptionHandler(DuplicateKeyException.class)
+    public Result<Void> handleDuplicateKey(DuplicateKeyException e) {
+        log.warn("唯一约束冲突：{}", e.getMessage());
+        return Result.fail(ErrorCode.DUPLICATE_DATA.getCode(), "数据已存在（唯一字段冲突）");
     }
 }

@@ -25,6 +25,8 @@ public enum ErrorCode {
     SLOT_FULL(40901, "时段已满"),
     STATUS_INVALID(40902, "预约状态不允许该操作"),
     CANCEL_TOO_LATE(40903, "距离服务开始不足 24 小时，不可取消"),
+    DUPLICATE_DATA(40904, "数据已存在"),
+    IN_USE(40905, "数据已被使用，无法删除"),
     SYSTEM_ERROR(50000, "系统异常");
 
     /** 错误码 */
