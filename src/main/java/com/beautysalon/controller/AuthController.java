@@ -3,8 +3,10 @@ package com.beautysalon.controller;
 import com.beautysalon.common.Result;
 import com.beautysalon.model.dto.LoginRequest;
 import com.beautysalon.model.dto.LoginResponse;
+import com.beautysalon.model.dto.UserInfoResponse;
 import com.beautysalon.service.AuthService;
 import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -43,5 +45,16 @@ public class AuthController {
     public Result<Void> logout() {
         authService.logout();
         return Result.ok();
+    }
+
+    /**
+     * 当前登录用户信息（需要登录）
+     *
+     * <p>注意这个方法没有任何参数：用户是谁，完全由请求头里的 token 决定。
+     * 前端刷新页面后可以调这个接口来恢复登录状态（比把用户信息存 localStorage 更可靠）。</p>
+     */
+    @GetMapping("/me")
+    public Result<UserInfoResponse> me() {
+        return Result.ok(authService.currentUser());
     }
 }

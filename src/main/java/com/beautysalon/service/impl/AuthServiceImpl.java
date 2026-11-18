@@ -7,6 +7,7 @@ import com.beautysalon.common.ErrorCode;
 import com.beautysalon.mapper.UserMapper;
 import com.beautysalon.model.dto.LoginRequest;
 import com.beautysalon.model.dto.LoginResponse;
+import com.beautysalon.model.dto.UserInfoResponse;
 import com.beautysalon.model.entity.User;
 import com.beautysalon.service.AuthService;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -73,5 +74,49 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public void logout() {
         StpUtil.logout();
+    }
+
+    /**
+     * 查询当前登录用户信息
+     *
+     * <p>关键点：用户身份来自 token，不来自前端参数。</p>
+     * <ol>
+     *   <li>{@code StpUtil.getLoginIdAsLong()}：从当前请求的 token 里取出登录时存进去的用户 id。
+     *       因为登录时是 {@code StpUtil.login(user.getId())}（Long 类型），所以这里能用 AsLong。</li>
+     *   <li>再用这个 id 回数据库查最新信息——这样昵称、角色被后台改过，前端拿到的也是最新的。</li>
+     * </ol>
+     *
+     * <p>为什么还要再查库校验？因为 token 有效 ≠ 账号一定还能用：
+     * 用户可能已被删除、被禁用。这时要主动清掉登录态，让前端跳登录页。</p>
+     */
+    @Override
+    public UserInfoResponse currentUser() {
+        // 1. 从 token 解析出当前登录用户 id
+        long userId = StpUtil.getLoginIdAsLong();
+
+        // 2. 按 id 查用户（selectById 是 MyBatis-Plus 自带的主键查询方法）
+        User user = userMapper.selectById(userId);
+
+        // 3. 用户已被删除：token 还在但账号没了，强制登出
+        if (user == null) {
+            StpUtil.logout();
+            throw new BusinessException(ErrorCode.NOT_LOGIN, "账号不存在，请重新登录");
+        }
+
+        // 4. 账号被禁用：同样清掉登录态，避免继续拿着有效 token 访问
+        if (user.getStatus() == null || user.getStatus() != 1) {
+            StpUtil.logout();
+            throw new BusinessException(ErrorCode.NO_PERMISSION, "账号已被禁用");
+        }
+
+        // 5. 组装返回（只暴露安全字段，不含 passwordHash）
+        return UserInfoResponse.builder()
+                .userId(user.getId())
+                .merchantId(user.getMerchantId())
+                .phone(user.getPhone())
+                .nickname(user.getNickname())
+                .role(user.getRole())
+                .status(user.getStatus())
+                .build();
     }
 }
