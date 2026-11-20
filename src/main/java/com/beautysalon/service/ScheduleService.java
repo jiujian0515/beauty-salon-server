@@ -3,6 +3,7 @@ package com.beautysalon.service;
 import com.beautysalon.common.PageResult;
 import com.beautysalon.model.dto.CalendarDayResponse;
 import com.beautysalon.model.dto.ScheduleBatchCreateRequest;
+import com.beautysalon.model.dto.ScheduleBatchDeleteResponse;
 import com.beautysalon.model.dto.ScheduleBatchResponse;
 import com.beautysalon.model.dto.ScheduleCreateRequest;
 import com.beautysalon.model.dto.ScheduleResponse;
@@ -35,6 +36,9 @@ public interface ScheduleService {
 
     /** 删除排班（有预约占用时禁止） */
     void delete(Long id);
+
+    /** 批量删除排班，有预约占用的会被跳过 */
+    ScheduleBatchDeleteResponse batchDelete(List<Long> ids);
 
     /** 查询某条排班窗口内的时段库存 */
     List<SlotInventoryResponse> slots(Long id);

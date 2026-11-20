@@ -372,6 +372,7 @@ CREATE TABLE audit_log (
 | GET | /admin/resources/staff-candidates | 技师候选用户（本商户非管理员、未绑定） | ADMIN |
 | GET/POST/PUT/DELETE | /admin/schedules | 排班 CRUD（保存时按 slotMinutes 自动生成时段库存） | 后台账号 |
 | POST | /admin/schedules/batch | 批量排班（按星期过滤，冲突日期跳过并返回原因） | 后台账号 |
+| POST | /admin/schedules/batch-delete | 批量删除排班（有预约占用的跳过并返回原因） | 后台账号 |
 | GET | /admin/schedules/{id}/slots | 排班窗口内的时段库存 | 后台账号 |
 | GET | /admin/calendar | 日历视图（默认今天起 7 天，最多 62 天） | 后台账号 |
 | GET | /admin/slots | 时段库存分页（resourceId/日期/status 过滤） | 后台账号 |
@@ -456,6 +457,7 @@ CREATE TABLE audit_log (
 - status 1↔0：窗口内所有时段一起释放/锁定（会覆盖手工锁定，属预期行为）
 
 删除排班：窗口内任一 used>0 或存在预约历史 → 40905；否则先删库存再删排班
+批量删除：逐条处理，不存在/有占用或预约历史的跳过并返回原因，其余正常删除（一次最多 100 条）
 
 锁定/释放时段：
 - 锁定 status=0 幂等，不影响 used

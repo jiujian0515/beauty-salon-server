@@ -3,6 +3,8 @@ package com.beautysalon.controller;
 import com.beautysalon.common.PageResult;
 import com.beautysalon.common.Result;
 import com.beautysalon.model.dto.ScheduleBatchCreateRequest;
+import com.beautysalon.model.dto.ScheduleBatchDeleteRequest;
+import com.beautysalon.model.dto.ScheduleBatchDeleteResponse;
 import com.beautysalon.model.dto.ScheduleBatchResponse;
 import com.beautysalon.model.dto.ScheduleCreateRequest;
 import com.beautysalon.model.dto.ScheduleResponse;
@@ -33,6 +35,7 @@ import java.util.List;
  *   <tr><td>GET</td><td>/api/v1/admin/schedules/{id}</td><td>详情</td></tr>
  *   <tr><td>POST</td><td>/api/v1/admin/schedules</td><td>新增（自动生成时段库存）</td></tr>
  *   <tr><td>POST</td><td>/api/v1/admin/schedules/batch</td><td>批量新增</td></tr>
+ *   <tr><td>POST</td><td>/api/v1/admin/schedules/batch-delete</td><td>批量删除</td></tr>
  *   <tr><td>PUT</td><td>/api/v1/admin/schedules/{id}</td><td>编辑</td></tr>
  *   <tr><td>DELETE</td><td>/api/v1/admin/schedules/{id}</td><td>删除</td></tr>
  *   <tr><td>GET</td><td>/api/v1/admin/schedules/{id}/slots</td><td>窗口内时段库存</td></tr>
@@ -95,6 +98,17 @@ public class ScheduleController {
     public Result<Void> delete(@PathVariable Long id) {
         scheduleService.delete(id);
         return Result.ok();
+    }
+
+    /**
+     * 批量删除排班
+     *
+     * <p>逐条删除：不存在或已有预约占用的排班会被跳过并返回原因，其余正常删除。</p>
+     */
+    @PostMapping("/batch-delete")
+    public Result<ScheduleBatchDeleteResponse> batchDelete(
+            @Valid @RequestBody ScheduleBatchDeleteRequest request) {
+        return Result.ok(scheduleService.batchDelete(request.getIds()));
     }
 
     /** 查询该排班窗口内的时段库存 */

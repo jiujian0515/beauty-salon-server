@@ -12,6 +12,7 @@ import com.beautysalon.mapper.ScheduleMapper;
 import com.beautysalon.mapper.SlotInventoryMapper;
 import com.beautysalon.model.dto.CalendarDayResponse;
 import com.beautysalon.model.dto.ScheduleBatchCreateRequest;
+import com.beautysalon.model.dto.ScheduleBatchDeleteResponse;
 import com.beautysalon.model.dto.ScheduleBatchResponse;
 import com.beautysalon.model.dto.ScheduleCreateRequest;
 import com.beautysalon.model.dto.ScheduleResponse;
@@ -310,18 +311,46 @@ public class ScheduleServiceImpl implements ScheduleService {
     @Transactional
     public void delete(Long id) {
         Schedule schedule = findSchedule(id);
-        List<SlotInventory> slots = slotInventoryMapper.selectWindow(
-                schedule.getResourceId(), schedule.getScheduleDate(),
-                schedule.getStartTime(), schedule.getEndTime());
-
-        if (hasUsed(slots) || hasReservationHistory(slots)) {
+        if (!isDeletable(schedule)) {
             throw new BusinessException(ErrorCode.IN_USE,
                     "该排班已有预约占用，无法删除，可将状态改为无效");
         }
+        removeSchedule(schedule);
+    }
 
-        slotInventoryMapper.deleteWindow(schedule.getResourceId(), schedule.getScheduleDate(),
-                schedule.getStartTime(), schedule.getEndTime());
-        scheduleMapper.deleteById(id);
+    @Override
+    @Transactional
+    public ScheduleBatchDeleteResponse batchDelete(List<Long> ids) {
+        long merchantId = loginContext.merchantId();
+        List<ScheduleBatchDeleteResponse.SkippedItem> skipped = new ArrayList<>();
+        int deleted = 0;
+
+        for (Long id : ids.stream().filter(Objects::nonNull).distinct().toList()) {
+            Schedule schedule = scheduleMapper.selectById(id);
+            if (schedule == null
+                    || !Objects.equals(schedule.getMerchantId(), merchantId)) {
+                skipped.add(ScheduleBatchDeleteResponse.SkippedItem.builder()
+                        .id(id)
+                        .reason("排班不存在")
+                        .build());
+                continue;
+            }
+            if (!isDeletable(schedule)) {
+                skipped.add(ScheduleBatchDeleteResponse.SkippedItem.builder()
+                        .id(id)
+                        .reason("已有预约占用，无法删除")
+                        .build());
+                continue;
+            }
+            removeSchedule(schedule);
+            deleted++;
+        }
+
+        return ScheduleBatchDeleteResponse.builder()
+                .deletedCount(deleted)
+                .skippedCount(skipped.size())
+                .skipped(skipped)
+                .build();
     }
 
     @Override
@@ -528,6 +557,19 @@ public class ScheduleServiceImpl implements ScheduleService {
                 .filter(Objects::nonNull)
                 .toList();
         return !slotIds.isEmpty() && reservationMapper.countBySlotIds(slotIds) > 0;
+    }
+
+    /** 窗口内没有占用且没有预约历史才允许删除 */
+    private boolean isDeletable(Schedule schedule) {
+        List<SlotInventory> slots = loadWindowSlots(schedule);
+        return !hasUsed(slots) && !hasReservationHistory(slots);
+    }
+
+    /** 先删窗口库存再删排班 */
+    private void removeSchedule(Schedule schedule) {
+        slotInventoryMapper.deleteWindow(schedule.getResourceId(), schedule.getScheduleDate(),
+                schedule.getStartTime(), schedule.getEndTime());
+        scheduleMapper.deleteById(schedule.getId());
     }
 
     private void validateDateRange(LocalDate startDate, LocalDate endDate) {
