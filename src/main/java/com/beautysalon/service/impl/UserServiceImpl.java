@@ -7,12 +7,14 @@ import com.beautysalon.common.BusinessException;
 import com.beautysalon.common.ErrorCode;
 import com.beautysalon.common.LoginContext;
 import com.beautysalon.common.PageResult;
+import com.beautysalon.mapper.ResourceMapper;
 import com.beautysalon.mapper.UserMapper;
 import com.beautysalon.model.dto.RoleResponse;
 import com.beautysalon.model.dto.UserCreateRequest;
 import com.beautysalon.model.dto.UserResetPasswordRequest;
 import com.beautysalon.model.dto.UserResponse;
 import com.beautysalon.model.dto.UserUpdateRequest;
+import com.beautysalon.model.entity.Resource;
 import com.beautysalon.model.entity.Role;
 import com.beautysalon.model.entity.User;
 import com.beautysalon.service.UserRoleService;
@@ -50,15 +52,18 @@ public class UserServiceImpl implements UserService {
 
     private final UserMapper userMapper;
     private final UserRoleService userRoleService;
+    private final ResourceMapper resourceMapper;
     private final PasswordEncoder passwordEncoder;
     private final LoginContext loginContext;
 
     public UserServiceImpl(UserMapper userMapper,
                            UserRoleService userRoleService,
+                           ResourceMapper resourceMapper,
                            PasswordEncoder passwordEncoder,
                            LoginContext loginContext) {
         this.userMapper = userMapper;
         this.userRoleService = userRoleService;
+        this.resourceMapper = resourceMapper;
         this.passwordEncoder = passwordEncoder;
         this.loginContext = loginContext;
     }
@@ -197,6 +202,13 @@ public class UserServiceImpl implements UserService {
         }
         if (Objects.equals(id, loginContext.userId())) {
             throw new BusinessException(ErrorCode.NO_PERMISSION, "不能删除当前登录账号");
+        }
+
+        // 已绑定技师资源的用户不能删除，否则资源会指向一个已删除账号
+        Long boundResourceCount = resourceMapper.selectCount(
+                new LambdaQueryWrapper<Resource>().eq(Resource::getUserId, id));
+        if (boundResourceCount != null && boundResourceCount > 0) {
+            throw new BusinessException(ErrorCode.IN_USE, "该用户已绑定技师资源，请先删除对应资源");
         }
 
         // 逻辑删除后手机号仍占用唯一索引，先改名释放，保证同号可重新注册

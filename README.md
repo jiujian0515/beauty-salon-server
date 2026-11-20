@@ -222,10 +222,12 @@ CREATE TABLE resource (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   merchant_id BIGINT NOT NULL,
   type VARCHAR(16) NOT NULL COMMENT 'STAFF/ROOM',
+  user_id BIGINT NULL COMMENT '绑定用户（STAFF 技师必填；ROOM 为空）',
   name VARCHAR(64) NOT NULL,
   status TINYINT NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_user (user_id),
   KEY idx_merchant (merchant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
@@ -363,7 +365,8 @@ CREATE TABLE audit_log (
 | GET/POST/PUT/DELETE | /admin/customers | 顾客 CRUD（全局共享，支持 keyword 模糊查询） | ADMIN |
 | PUT | /admin/customers/{id}/password | 重置顾客密码 | ADMIN |
 | GET/POST/PUT/DELETE | /admin/services | 服务项目 CRUD | ADMIN |
-| GET/POST/PUT/DELETE | /admin/resources | 资源 CRUD | ADMIN |
+| GET/POST/PUT/DELETE | /admin/resources | 资源 CRUD（STAFF 技师需绑定非管理员用户） | ADMIN |
+| GET | /admin/resources/staff-candidates | 技师候选用户（本商户非管理员、未绑定） | ADMIN |
 | GET/POST/PUT/DELETE | /admin/schedules | 排班 CRUD | STAFF/ADMIN |
 | GET | /admin/calendar | 日历视图 | STAFF/ADMIN |
 | POST | /admin/slots/{id}/lock | 锁定时段 | STAFF/ADMIN |
