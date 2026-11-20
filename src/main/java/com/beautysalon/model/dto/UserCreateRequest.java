@@ -1,15 +1,18 @@
 package com.beautysalon.model.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.util.List;
+
 /**
- * 新增用户请求（管理员 / 员工 / 顾客均可在此创建）
+ * 新增用户请求（后台账号：管理员 / 员工）
  *
- * <p>校验注解会在进入 Controller 方法前生效（配合 {@code @Valid}），
- * 校验失败由全局异常处理器统一返回 40001 + 具体提示。</p>
+ * <p>顾客不在这里创建——顾客有独立的账号体系，见 {@link CustomerCreateRequest}。</p>
+ * <p>角色通过 {@code roleIds} 关联，支持一个用户多个角色（参考若依）。</p>
  */
 @Data
 public class UserCreateRequest {
@@ -29,9 +32,13 @@ public class UserCreateRequest {
     @Size(max = 64, message = "姓名最长 64 个字符")
     private String nickname;
 
-    /** 角色代码：ADMIN 管理员 / STAFF 员工 / CUSTOMER 顾客（须存在于 role 表） */
-    @NotBlank(message = "角色不能为空")
-    private String role;
+    /**
+     * 角色 id 列表（用户与角色多对多，至少选择一个）
+     *
+     * <p>注意：CUSTOMER 是顾客专属角色，后台账号不允许使用。</p>
+     */
+    @NotEmpty(message = "请至少选择一个角色")
+    private List<Long> roleIds;
 
     /** 状态：1启用 0禁用（不传默认 1 启用） */
     private Integer status;

@@ -3,6 +3,8 @@ package com.beautysalon.model.dto;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.List;
+
 /**
  * 当前登录用户信息（GET /api/v1/auth/me 的返回体）
  *
@@ -30,7 +32,14 @@ public class UserInfoResponse {
     /** 昵称 */
     private String nickname;
 
-    /** 角色：CUSTOMER/STAFF/ADMIN（前端据此控制菜单和按钮显隐） */
+    /** 角色代码列表（如 ["ADMIN"]，前端据此控制菜单和按钮显隐） */
+    private List<String> roles;
+
+    /**
+     * 主角色代码（取 roles 的第一个，兼容只判断单个角色的前端逻辑）
+     *
+     * <p>完整角色请使用 {@link #roles}。</p>
+     */
     private String role;
 
     /** 状态：1启用 0禁用 */

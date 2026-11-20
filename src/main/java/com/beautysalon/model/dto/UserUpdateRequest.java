@@ -4,6 +4,8 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.util.List;
+
 /**
  * 编辑用户请求（局部更新：只改传了值的字段）
  */
@@ -18,8 +20,12 @@ public class UserUpdateRequest {
     @Size(max = 64, message = "姓名最长 64 个字符")
     private String nickname;
 
-    /** 新角色代码（不传表示不改；须存在于 role 表） */
-    private String role;
+    /**
+     * 新角色 id 列表（不传表示不改；至少保留一个角色）
+     *
+     * <p>管理员账号的角色不允许修改。</p>
+     */
+    private List<Long> roleIds;
 
     /** 状态：1启用 0禁用（不传表示不改） */
     private Integer status;

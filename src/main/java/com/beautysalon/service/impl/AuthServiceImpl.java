@@ -5,14 +5,18 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.beautysalon.common.BusinessException;
 import com.beautysalon.common.ErrorCode;
 import com.beautysalon.common.LoginContext;
+import com.beautysalon.common.LoginIdSupport;
 import com.beautysalon.mapper.UserMapper;
 import com.beautysalon.model.dto.LoginRequest;
 import com.beautysalon.model.dto.LoginResponse;
 import com.beautysalon.model.dto.UserInfoResponse;
 import com.beautysalon.model.entity.User;
 import com.beautysalon.service.AuthService;
+import com.beautysalon.service.UserRoleService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
 
 /**
  * 认证服务实现（业务核心逻辑都在这里）
@@ -26,13 +30,16 @@ public class AuthServiceImpl implements AuthService {
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
     private final LoginContext loginContext;
+    private final UserRoleService userRoleService;
 
     public AuthServiceImpl(UserMapper userMapper,
                            PasswordEncoder passwordEncoder,
-                           LoginContext loginContext) {
+                           LoginContext loginContext,
+                           UserRoleService userRoleService) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
         this.loginContext = loginContext;
+        this.userRoleService = userRoleService;
     }
 
     /**
@@ -60,8 +67,9 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(ErrorCode.NO_PERMISSION, "账号已被禁用");
         }
 
-        // 4. Sa-Token 登录：以用户 id 作为登录标识，内部生成 token 并维护登录态
-        StpUtil.login(user.getId());
+        // 4. Sa-Token 登录：登录标识用 "user:{id}" 前缀，
+        //    与顾客端的 "customer:{id}" 区分，避免两张表主键相同导致串号
+        StpUtil.login(LoginIdSupport.ofUser(user.getId()));
 
         // 5. 只返回 token：用户信息由 /api/v1/auth/me 统一提供，避免两处数据不一致
         return LoginResponse.builder()
@@ -83,8 +91,8 @@ public class AuthServiceImpl implements AuthService {
      *
      * <p>关键点：用户身份来自 token，不来自前端参数。</p>
      * <ol>
-     *   <li>{@code StpUtil.getLoginIdAsLong()}：从当前请求的 token 里取出登录时存进去的用户 id。
-     *       因为登录时是 {@code StpUtil.login(user.getId())}（Long 类型），所以这里能用 AsLong。</li>
+     *   <li>{@code StpUtil.getLoginIdAsString()}：从当前请求的 token 里取出登录时存进去的标识
+     *       （后台账号是 {@code user:{id}}，顾客是 {@code customer:{id}}）。</li>
      *   <li>再用这个 id 回数据库查最新信息——这样昵称、角色被后台改过，前端拿到的也是最新的。</li>
      * </ol>
      *
@@ -97,12 +105,17 @@ public class AuthServiceImpl implements AuthService {
         // 这段通用逻辑已抽到 LoginContext，多处复用
         User user = loginContext.currentUser();
 
+        // 角色来自 user_role 关联表（多对多），一次查出全部角色代码
+        List<String> roles = userRoleService.roleCodesOf(user.getId());
+
         return UserInfoResponse.builder()
                 .userId(user.getId())
                 .merchantId(user.getMerchantId())
                 .phone(user.getPhone())
                 .nickname(user.getNickname())
-                .role(user.getRole())
+                .roles(roles)
+                // 主角色：取第一个，兼容只判断单个角色的旧前端逻辑
+                .role(roles.isEmpty() ? null : roles.get(0))
                 .status(user.getStatus())
                 .build();
     }

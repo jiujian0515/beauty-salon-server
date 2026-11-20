@@ -8,6 +8,20 @@
 -- 通用约定（见 README-BTD.md 第 6 节）：
 --   主键 BIGINT 自增；金额一律 BIGINT 单位「分」；时间 DATETIME；
 --   字符集 utf8mb4；引擎 InnoDB。
+--
+-- 账号模型（两套账号池，物理分表）：
+--   user     —— 后台账号：管理员 / 员工，必须绑定商户，登录走 /api/v1/auth/login
+--   customer —— 顾客账号：全局共享（不绑定商户），来源有两个
+--               1) 顾客端自助注册 /api/v1/customer/auth/register
+--               2) 后台管理员添加 /api/v1/admin/customers
+--   两者手机号允许重复（同一个人既可能是某店员工，也可能是顾客），
+--   因此登录态用 "user:{id}" / "customer:{id}" 前缀区分，互不干扰。
+--
+-- 权限模型（参考若依 RuoYi）：
+--   后台账号与角色是「多对多」关系，通过 user_role 关联表维护，
+--   user 表不再直接存 role 字段；顾客不参与后台角色体系。
+--   初始化只内置一个「管理员」角色和一个管理员账号，
+--   其余角色由管理员通过角色管理接口自行维护。
 -- ============================================================
 
 -- ---------- 1. 商户表（演示为单租户，但预留 merchant_id 便于扩展多租户） ----------
@@ -20,21 +34,20 @@ CREATE TABLE merchant (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商户';
 
--- ---------- 2. 角色表（角色字典：管理员/员工/顾客） ----------
+-- ---------- 2. 角色表（角色字典，初始化仅内置管理员角色） ----------
 CREATE TABLE role (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
   name VARCHAR(64) NOT NULL COMMENT '角色名称（中文显示用）',
-  code VARCHAR(32) NOT NULL COMMENT '角色代码（如 CUSTOMER/STAFF/ADMIN，与 user.role 字段对应）',
+  code VARCHAR(32) NOT NULL COMMENT '角色代码（如 ADMIN/STAFF，与用户关联后用于鉴权）',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='角色';
 
--- ---------- 3. 用户表（顾客 / 员工 / 管理员） ----------
+-- ---------- 3. 后台用户表（管理员/员工，必须绑定商户；顾客见 customer 表） ----------
 CREATE TABLE user (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
-  merchant_id BIGINT COMMENT '所属商户（顾客可为空）',
-  role VARCHAR(16) NOT NULL COMMENT '角色：CUSTOMER/STAFF/ADMIN',
+  merchant_id BIGINT NOT NULL COMMENT '所属商户（管理员/员工必填）',
   phone VARCHAR(20) NOT NULL COMMENT '手机号（登录账号）',
   password_hash VARCHAR(128) COMMENT '密码哈希',
   nickname VARCHAR(64) COMMENT '昵称',
@@ -43,9 +56,31 @@ CREATE TABLE user (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_phone (phone),
   KEY idx_merchant (merchant_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='后台用户（管理员/员工）';
 
--- ---------- 4. 服务项目表 ----------
+-- ---------- 3.1 顾客表（全局共享，不绑定商户；支持顾客端自助注册） ----------
+CREATE TABLE customer (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+  phone VARCHAR(20) NOT NULL COMMENT '手机号（登录账号）',
+  password_hash VARCHAR(128) COMMENT '密码哈希',
+  nickname VARCHAR(64) COMMENT '昵称',
+  status TINYINT NOT NULL DEFAULT 1 COMMENT '状态：1启用 0禁用',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_phone (phone)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='顾客';
+
+-- ---------- 4. 用户-角色关联表（多对多，参考若依 sys_user_role） ----------
+CREATE TABLE user_role (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
+  user_id BIGINT NOT NULL COMMENT '用户',
+  role_id BIGINT NOT NULL COMMENT '角色',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_user_role (user_id, role_id),
+  KEY idx_role (role_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户-角色关联';
+
+-- ---------- 5. 服务项目表 ----------
 CREATE TABLE service_item (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
   merchant_id BIGINT NOT NULL COMMENT '所属商户',
@@ -60,7 +95,7 @@ CREATE TABLE service_item (
   KEY idx_merchant (merchant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='服务项目';
 
--- ---------- 5. 资源表（技师 STAFF / 床位 ROOM） ----------
+-- ---------- 6. 资源表（技师 STAFF / 床位 ROOM） ----------
 CREATE TABLE resource (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
   merchant_id BIGINT NOT NULL COMMENT '所属商户',
@@ -72,7 +107,7 @@ CREATE TABLE resource (
   KEY idx_merchant (merchant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='资源';
 
--- ---------- 6. 排班表（商户为资源设置的可售时间窗口） ----------
+-- ---------- 7. 排班表（商户为资源设置的可售时间窗口） ----------
 CREATE TABLE schedule (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
   merchant_id BIGINT NOT NULL COMMENT '所属商户',
@@ -87,7 +122,7 @@ CREATE TABLE schedule (
   KEY idx_merchant (merchant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='排班';
 
--- ---------- 7. 时段库存表（独立成行，用于并发防超卖） ----------
+-- ---------- 8. 时段库存表（独立成行，用于并发防超卖） ----------
 CREATE TABLE slot_inventory (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
   merchant_id BIGINT NOT NULL COMMENT '所属商户',
@@ -104,7 +139,7 @@ CREATE TABLE slot_inventory (
   KEY idx_date (slot_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='时段库存';
 
--- ---------- 8. 预约单表 ----------
+-- ---------- 9. 预约单表 ----------
 CREATE TABLE reservation (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
   reservation_no VARCHAR(32) NOT NULL COMMENT '预约业务号',
@@ -126,7 +161,7 @@ CREATE TABLE reservation (
   KEY idx_merchant (merchant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='预约单';
 
--- ---------- 9. 定金流水表 ----------
+-- ---------- 10. 定金流水表 ----------
 CREATE TABLE deposit_transaction (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
   merchant_id BIGINT NOT NULL COMMENT '所属商户',
@@ -145,7 +180,7 @@ CREATE TABLE deposit_transaction (
   KEY idx_reservation (reservation_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='定金流水';
 
--- ---------- 10. 审计日志表（只追加，不更新） ----------
+-- ---------- 11. 审计日志表（只追加，不更新） ----------
 CREATE TABLE audit_log (
   id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键',
   merchant_id BIGINT NOT NULL COMMENT '所属商户',
@@ -167,24 +202,16 @@ CREATE TABLE audit_log (
 -- 演示商户
 INSERT INTO merchant (id, name, phone) VALUES (1, '颜汐美容院', '13800000000');
 
--- 角色字典（code 与 user.role 字段值保持一致）
-INSERT INTO role (id, name, code) VALUES
-  (1, '管理员', 'ADMIN'),
-  (2, '员工',   'STAFF'),
-  (3, '顾客',   'CUSTOMER');
+-- 角色字典：初始化只内置管理员角色（其余角色由管理员自行创建）
+INSERT INTO role (id, name, code) VALUES (1, '管理员', 'ADMIN');
 
--- 演示用户（密码字段为占位值，实现登录时需替换为加密后的哈希）
--- 角色：ADMIN 管理员 / STAFF 员工 / CUSTOMER 顾客
-INSERT INTO user (id, merchant_id, role, phone, password_hash, nickname) VALUES
-  (1, 1, 'ADMIN',    '13800000001', 'TODO_BCRYPT_ADMIN',    '管理员'),
-  (2, 1, 'STAFF',    '13800000002', 'TODO_BCRYPT_STAFF',    '技师小王'),
-  (3, NULL, 'CUSTOMER', '13800000003', 'TODO_BCRYPT_CUSTOMER', '顾客张三');
+-- 初始用户：只内置一个管理员账号
+-- 密码字段为占位值，由 V2 填充真实的 BCrypt 哈希（明文 123456）
+INSERT INTO user (id, merchant_id, phone, password_hash, nickname) VALUES
+  (1, 1, '13800000001', 'TODO_BCRYPT_ADMIN', '管理员');
 
--- 服务项目（金额单位：分，19800 分 = 198 元）
-INSERT INTO service_item (id, merchant_id, name, description, duration_minutes, price_cents, deposit_cents, status) VALUES
-  (1, 1, '小气泡深层清洁', '韩国进口仪器，深层清洁毛孔', 60,  19800, 5000, 1),
-  (2, 1, '美甲基础款',     '基础修甲 + 单色甲油',       90,  12800, 3000, 1),
-  (3, 1, '头皮护理',       '舒缓头皮，改善出油',         120, 26800, 8000, 1);
+-- 管理员账号绑定管理员角色（用户与角色通过关联表维护）
+INSERT INTO user_role (user_id, role_id) VALUES (1, 1);
 
 -- 资源：STAFF 技师 / ROOM 床位
 INSERT INTO resource (id, merchant_id, type, name, status) VALUES

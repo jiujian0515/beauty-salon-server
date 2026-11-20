@@ -29,10 +29,26 @@ public class LoginContext {
     }
 
     /**
-     * 当前登录用户 id（从请求头 token 解析，前端无法伪造）
+     * 当前登录标识（字符串，形如 {@code user:1}）
+     *
+     * <p>本项目有两套账号池（user / customer），所以登录标识带前缀区分。</p>
+     */
+    public String loginId() {
+        return StpUtil.getLoginIdAsString();
+    }
+
+    /**
+     * 当前登录的后台用户 id（从请求头 token 解析，前端无法伪造）
+     *
+     * <p>如果当前 token 是顾客登录的（customer:1），这里会直接拒绝——
+     * 顾客账号不允许调用后台接口。</p>
      */
     public long userId() {
-        return StpUtil.getLoginIdAsLong();
+        String loginId = loginId();
+        if (LoginIdSupport.isCustomer(loginId)) {
+            throw new BusinessException(ErrorCode.NO_PERMISSION, "当前是顾客账号，请使用后台账号登录");
+        }
+        return LoginIdSupport.parseId(loginId, LoginIdSupport.PREFIX_USER);
     }
 
     /**

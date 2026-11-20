@@ -1,8 +1,10 @@
 package com.beautysalon.config;
 
 import cn.dev33.satoken.stp.StpInterface;
+import com.beautysalon.common.LoginIdSupport;
 import com.beautysalon.mapper.UserMapper;
 import com.beautysalon.model.entity.User;
+import com.beautysalon.service.UserRoleService;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -29,9 +31,11 @@ import java.util.List;
 public class StpInterfaceImpl implements StpInterface {
 
     private final UserMapper userMapper;
+    private final UserRoleService userRoleService;
 
-    public StpInterfaceImpl(UserMapper userMapper) {
+    public StpInterfaceImpl(UserMapper userMapper, UserRoleService userRoleService) {
         this.userMapper = userMapper;
+        this.userRoleService = userRoleService;
     }
 
     /**
@@ -45,17 +49,30 @@ public class StpInterfaceImpl implements StpInterface {
     }
 
     /**
-     * 返回该用户的角色列表（user.role 字段：CUSTOMER / STAFF / ADMIN）
+     * 返回该用户的角色代码列表（来自 user_role 关联表，如 ["ADMIN"]）
+     *
+     * <p>用户与角色是多对多，所以这里返回的是列表；一个用户可能有多个角色，
+     * 只要有任意一个命中 {@code @SaCheckRole} 的值就放行。</p>
+     *
+     * <p>注意：顾客账号（登录标识 {@code customer:{id}}）不参与后台角色体系，
+     * 这里返回空集合，因此顾客无法访问任何 {@code @SaCheckRole} 保护的接口。</p>
      */
     @Override
     public List<String> getRoleList(Object loginId, String loginType) {
-        // loginId 传进来是 Object，实际是登录时存的用户 id
-        User user = userMapper.selectById(Long.valueOf(loginId.toString()));
+        // loginId 传进来是 Object，实际是登录时存的字符串标识（user:1 / customer:1）
+        String loginIdStr = String.valueOf(loginId);
 
-        // 用户不存在或没有角色 → 返回空集合（@SaCheckRole 会判定为无权限）
-        if (user == null || user.getRole() == null || user.getRole().isBlank()) {
+        if (LoginIdSupport.isCustomer(loginIdStr)) {
             return Collections.emptyList();
         }
-        return Collections.singletonList(user.getRole());
+
+        long userId = LoginIdSupport.parseId(loginIdStr, LoginIdSupport.PREFIX_USER);
+
+        // 用户不存在（含已逻辑删除）→ 返回空集合（@SaCheckRole 会判定为无权限）
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            return Collections.emptyList();
+        }
+        return userRoleService.roleCodesOf(user.getId());
     }
 }

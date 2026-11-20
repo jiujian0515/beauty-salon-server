@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 用户信息返回体
@@ -23,14 +24,14 @@ public class UserResponse {
     /** 姓名/昵称 */
     private String nickname;
 
-    /** 角色代码（ADMIN/STAFF/CUSTOMER） */
-    private String role;
+    /** 所属商户 id（顾客可为空） */
+    private Long merchantId;
+
+    /** 角色列表（用户与角色多对多，参考若依） */
+    private List<RoleResponse> roles;
 
     /** 状态：1启用 0禁用 */
     private Integer status;
-
-    /** 所属商户 id（顾客可为空） */
-    private Long merchantId;
 
     /** 创建时间 */
     private LocalDateTime createdAt;

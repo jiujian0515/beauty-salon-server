@@ -20,6 +20,9 @@ import java.time.LocalDateTime;
  *
  * <p>字段命名约定：数据库用下划线（password_hash），Java 用驼峰（passwordHash），
  * MyBatis-Plus 会自动做映射（application.yml 里配了 map-underscore-to-camel-case）。</p>
+ *
+ * <p>注意：用户与角色是「多对多」关系，通过 {@code user_role} 关联表维护
+ * （参考若依 RuoYi 的 sys_user_role），本实体不再包含 role 字段。</p>
  */
 @Data
 @TableName("user")
@@ -31,9 +34,6 @@ public class User {
 
     /** 所属商户（顾客可为空） */
     private Long merchantId;
-
-    /** 角色：CUSTOMER/STAFF/ADMIN */
-    private String role;
 
     /** 手机号（登录账号） */
     private String phone;

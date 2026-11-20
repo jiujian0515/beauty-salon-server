@@ -22,7 +22,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 用户管理接口（商户端，仅管理员可用）
  *
- * <p>统一管理管理员 / 员工 / 顾客三种角色。</p>
+ * <p>只管理后台账号：管理员 / 员工。顾客是独立账号体系，
+ * 请使用 {@link CustomerController}（/api/v1/admin/customers）。</p>
  *
  * <table border="1">
  *   <tr><th>方法</th><th>路径</th><th>作用</th></tr>

@@ -124,23 +124,78 @@ CREATE TABLE merchant (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
-### 6.2 user
+### 6.2 user / role / user_role / customer（两套账号池）
+
+> 账号分成两套彼此独立的「账号池」，靠登录标识前缀隔离：
+>
+> | 账号池 | 表 | 登录接口 | Sa-Token 登录标识 | 角色来源 |
+> |---|---|---|---|---|
+> | 后台账号（管理员/员工） | `user` | `POST /auth/login` | `user:{id}` | `user_role` 关联表 |
+> | 顾客 | `customer` | `POST /customer/auth/login` | `customer:{id}` | 无（顾客永远没有后台角色） |
+>
+> 为什么必须拆表：顾客可以自助注册、数量级远大于员工、且不绑定商户（全局共享），
+> 和「必须属于某个商户、必须被管理员分配角色」的后台账号是完全不同的生命周期。
+> 两表手机号各自唯一（可以重复），所以登录标识必须带前缀，否则 `StpUtil.getLoginId()` 无法区分。
+>
+> 参考若依 RuoYi 的 sys_user / sys_role / sys_user_role：后台账号与角色是「多对多」，
+> `user` 表不再直接存角色字段，角色关系由 `user_role` 关联表维护。
+> 初始化只内置一个「管理员」角色（code = ADMIN）和一个管理员账号（13800000001 / 123456），
+> 其余角色由管理员通过角色管理接口自行创建。
 
 ```sql
 CREATE TABLE user (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  merchant_id BIGINT,
-  role VARCHAR(16) NOT NULL COMMENT 'CUSTOMER/STAFF/ADMIN',
+  merchant_id BIGINT NOT NULL COMMENT '所属商户（后台账号必须归属某个商户）',
   phone VARCHAR(20) NOT NULL,
   password_hash VARCHAR(128),
   nickname VARCHAR(64),
   status TINYINT NOT NULL DEFAULT 1,
+  deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除：1已删除 0正常',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_phone (phone),
   KEY idx_merchant (merchant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE role (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(64) NOT NULL,
+  code VARCHAR(32) NOT NULL COMMENT '如 ADMIN/STAFF/CUSTOMER，鉴权用',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE user_role (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  role_id BIGINT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_user_role (user_id, role_id),
+  KEY idx_role (role_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE customer (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  phone VARCHAR(20) NOT NULL,
+  password_hash VARCHAR(128),
+  nickname VARCHAR(64),
+  status TINYINT NOT NULL DEFAULT 1,
+  deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除：1已删除 0正常',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_phone (phone)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
+
+业务约束：
+
+- `ADMIN` 角色是内置角色：不允许创建、修改、删除；`ADMIN` 账号的角色不允许被其他用户修改，也不允许删除/禁用。
+- 角色仍被用户引用时不允许删除（返回 40905）。
+- `CUSTOMER` 是顾客保留代码：角色管理里禁止创建或改成 CUSTOMER，后台账号也不能挂 CUSTOMER 角色。
+- 后台账号必须绑定商户（`merchant_id NOT NULL`），只能看到/管理本商户的账号。
+- 顾客全局共享、不绑定商户：后台的顾客列表不做商户过滤；顾客账号由后台添加或顾客端自助注册两条路径产生。
+- 删除账号时先把手机号改写为 `phone + '#del' + id` 再逻辑删除，释放手机号唯一索引以便复用。
 
 ### 6.3 service_item
 
@@ -284,7 +339,10 @@ CREATE TABLE audit_log (
 
 | 方法 | 路径 | 说明 | 鉴权 |
 |---|---|---|---|
-| POST | /auth/customer/login | 手机号登录（演示发验证码/模拟） | 否 |
+| POST | /customer/auth/register | 顾客自助注册（手机号+密码），注册即登录返回 token | 否 |
+| POST | /customer/auth/login | 顾客登录 | 否 |
+| POST | /customer/auth/logout | 顾客退出 | 顾客 |
+| GET | /customer/auth/me | 当前顾客信息 | 顾客 |
 | GET | /services | 服务项目列表 | 否 |
 | GET | /slots | 可售时段（date、serviceId 参数） | 否 |
 | POST | /reservations | 创建预约（返回订单号+支付参数） | 顾客 |
@@ -297,7 +355,13 @@ CREATE TABLE audit_log (
 
 | 方法 | 路径 | 说明 | 角色 |
 |---|---|---|---|
-| POST | /auth/staff/login | 员工/管理员登录 | 否 |
+| POST | /auth/login | 后台账号（管理员/员工）登录 | 否 |
+| GET | /auth/me | 当前后台账号信息（含角色） | 后台账号 |
+| GET/POST/PUT/DELETE | /admin/users | 后台账号 CRUD（仅管理员/员工，不含顾客） | ADMIN |
+| PUT | /admin/users/{id}/password | 重置后台账号密码 | ADMIN |
+| GET/POST/PUT/DELETE | /admin/roles | 角色 CRUD（ADMIN 角色不可改/删/重复创建） | ADMIN |
+| GET/POST/PUT/DELETE | /admin/customers | 顾客 CRUD（全局共享，支持 keyword 模糊查询） | ADMIN |
+| PUT | /admin/customers/{id}/password | 重置顾客密码 | ADMIN |
 | GET/POST/PUT/DELETE | /admin/services | 服务项目 CRUD | ADMIN |
 | GET/POST/PUT/DELETE | /admin/resources | 资源 CRUD | ADMIN |
 | GET/POST/PUT/DELETE | /admin/schedules | 排班 CRUD | STAFF/ADMIN |

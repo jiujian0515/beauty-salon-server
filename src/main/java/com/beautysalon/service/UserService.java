@@ -7,10 +7,11 @@ import com.beautysalon.model.dto.UserResponse;
 import com.beautysalon.model.dto.UserUpdateRequest;
 
 /**
- * 用户账号管理服务（增删改查 + 重置密码）
+ * 用户账号管理服务（管理员/员工，增删改查 + 重置密码）
  *
- * <p>这里的「用户」覆盖管理员 / 员工 / 顾客三种角色；管理员/员工
- * 按商户隔离，顾客全局共享（不绑定商户）。</p>
+ * <p>本模块只管理「后台账号」（user 表）：管理员 / 员工，必须绑定商户、按商户隔离。</p>
+ * <p>顾客是独立账号体系（customer 表，全局共享，支持顾客端自助注册），
+ * 请使用 {@link CustomerService}。</p>
  */
 public interface UserService {
 
