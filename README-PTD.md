@@ -129,6 +129,7 @@ erDiagram
 | total | INT | NOT NULL, >=0 | 总容量 |
 | used | INT | NOT NULL, >=0 | 已占用 |
 | version | INT | NOT NULL DEFAULT 0 | 乐观锁 |
+| status | TINYINT | NOT NULL DEFAULT 1 | 1 可售 / 0 锁定 |
 | — | UNIQUE(resource_id, slot_date, start_time) | | 防重复建槽 |
 
 其余表关键点：
@@ -211,9 +212,13 @@ PENDING --> FAILED / EXPIRED
 
 ### 5.6 排班与库存生成
 
-- 商户保存 schedule（resource + date + start + end + capacity）。
-- 同步生成 slot_inventory 行（按服务时长或固定步长拆分），INSERT ... ON DUPLICATE KEY UPDATE 保证幂等。
-- 已产生预约的时段不可直接删除，需先锁定为不可售。
+- 商户保存 schedule（resource + date + start + end + capacity + slotMinutes），保存时同步生成 slot_inventory。
+- 按固定步长 slotMinutes（默认 60，范围 5-480）拆分窗口，窗口时长必须是步长的整数倍；INSERT ... ON DUPLICATE KEY UPDATE 保证幂等，重复保存不重置 used。
+- 同一资源同一天的排班时间窗口不可重叠；批量排班按星期（1=周一…7=周日）过滤，冲突日期跳过并返回原因。
+- 已产生预约占用（used>0）或存在预约历史的排班：禁止改日期/时间/步长，禁止删除，只允许调整容量（不低于已占用）和状态；容量与状态变更同步刷新窗口内库存。
+- 排班 status=1→0 时窗口内时段全部锁定，0→1 时全部释放（会覆盖手工锁定）。
+- 单个时段可手工锁定/释放（status=0/1）；释放前要求所属排班有效。
+- 日历接口按天汇总排班数、时段数、总容量、已占用、可售、锁定数，无排班日期也返回。
 
 ## 6. API 契约（概览）
 

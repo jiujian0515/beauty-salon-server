@@ -243,8 +243,10 @@ CREATE TABLE schedule (
   start_time TIME NOT NULL,
   end_time TIME NOT NULL,
   capacity INT NOT NULL DEFAULT 1,
+  slot_minutes INT NOT NULL DEFAULT 60 COMMENT '库存拆分步长（分钟）',
   status TINYINT NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_res_date_start (resource_id, schedule_date, start_time),
   KEY idx_merchant (merchant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -263,6 +265,7 @@ CREATE TABLE slot_inventory (
   total INT NOT NULL DEFAULT 1,
   used INT NOT NULL DEFAULT 0,
   version INT NOT NULL DEFAULT 0,
+  status TINYINT NOT NULL DEFAULT 1 COMMENT '状态：1可售 0锁定',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uk_res_date_start (resource_id, slot_date, start_time),
   KEY idx_merchant (merchant_id),
@@ -367,10 +370,13 @@ CREATE TABLE audit_log (
 | GET/POST/PUT/DELETE | /admin/services | 服务项目 CRUD | ADMIN |
 | GET/POST/PUT/DELETE | /admin/resources | 资源 CRUD（STAFF 技师需绑定非管理员用户） | ADMIN |
 | GET | /admin/resources/staff-candidates | 技师候选用户（本商户非管理员、未绑定） | ADMIN |
-| GET/POST/PUT/DELETE | /admin/schedules | 排班 CRUD | STAFF/ADMIN |
-| GET | /admin/calendar | 日历视图 | STAFF/ADMIN |
-| POST | /admin/slots/{id}/lock | 锁定时段 | STAFF/ADMIN |
-| POST | /admin/slots/{id}/unlock | 释放时段 | STAFF/ADMIN |
+| GET/POST/PUT/DELETE | /admin/schedules | 排班 CRUD（保存时按 slotMinutes 自动生成时段库存） | 后台账号 |
+| POST | /admin/schedules/batch | 批量排班（按星期过滤，冲突日期跳过并返回原因） | 后台账号 |
+| GET | /admin/schedules/{id}/slots | 排班窗口内的时段库存 | 后台账号 |
+| GET | /admin/calendar | 日历视图（默认今天起 7 天，最多 62 天） | 后台账号 |
+| GET | /admin/slots | 时段库存分页（resourceId/日期/status 过滤） | 后台账号 |
+| POST | /admin/slots/{id}/lock | 锁定时段 | 后台账号 |
+| POST | /admin/slots/{id}/unlock | 释放时段 | 后台账号 |
 | GET | /admin/reservations | 预约列表 | STAFF/ADMIN |
 | POST | /admin/reservations/{id}/verify | 发起核销 | STAFF/ADMIN |
 
@@ -430,6 +436,36 @@ CREATE TABLE audit_log (
    d. reservation: REFUNDING → REFUNDED（或 CANCELLED）
 4. 写 audit_log
 ```
+
+### 8.5 排班与时段库存
+
+```text
+保存排班（新增/批量）：
+1. 校验资源属于当前商户且 status=1；日期 >= 今天；start < end
+2. 校验 slotMinutes ∈ [5,480] 且窗口时长是 slotMinutes 的整数倍；capacity >= 1
+3. 同资源同日期窗口不可重叠（newStart < existingEnd && newEnd > existingStart）
+4. 按 [start, end) 以 slotMinutes 为步长逐条 upsert slot_inventory
+   - 唯一键 (resource_id, slot_date, start_time)，重复执行只更新 end_time/total/status
+   - 保留 used，不会重置已占用数
+   - 排班 status=0 时生成的时段直接锁定（status=0）
+
+编辑排班：
+- 已有 used>0 或存在预约历史 → 禁止改日期/时间/步长（40905），只允许改容量和状态
+- 容量不能小于窗口内已占用数
+- 无预约历史时改时间：先删旧窗口库存，再按新窗口重建
+- status 1↔0：窗口内所有时段一起释放/锁定（会覆盖手工锁定，属预期行为）
+
+删除排班：窗口内任一 used>0 或存在预约历史 → 40905；否则先删库存再删排班
+
+锁定/释放时段：
+- 锁定 status=0 幂等，不影响 used
+- 释放前校验所属排班存在且 status=1，否则报参数错误
+
+日历：按天汇总 scheduleCount/slotCount/totalCapacity/usedCount/availableCount/lockedCount，
+无排班的日期也会返回；默认今天起 7 天，最大 62 天
+```
+
+- 排班/时段/日历接口当前只做登录校验，角色权限由前端路由控制（后续可补 @SaCheckRole）。
 
 ## 9. 鉴权与数据隔离
 
