@@ -103,6 +103,10 @@ app:
     mock: true              # 演示环境开启模拟支付
     expire-minutes: 120     # 待支付占位时限
     cancel-ahead-hours: 24  # 可取消提前量
+  wechat:
+    app-id: ${WECHAT_APP_ID:}         # 微信小程序 AppID，通过环境变量注入
+    app-secret: ${WECHAT_APP_SECRET:} # 微信小程序 AppSecret，绝不写死在仓库
+    api-base-url: https://api.weixin.qq.com
 ```
 
 - 时区统一 Asia/Shanghai：连接串 serverTimezone + JVM -Duser.timezone=Asia/Shanghai + @Scheduled zone。
@@ -131,7 +135,7 @@ CREATE TABLE merchant (
 > | 账号池 | 表 | 登录接口 | Sa-Token 登录标识 | 角色来源 |
 > |---|---|---|---|---|
 > | 后台账号（管理员/员工） | `user` | `POST /auth/login` | `user:{id}` | `user_role` 关联表 |
-> | 顾客 | `customer` | `POST /customer/auth/login` | `customer:{id}` | 无（顾客永远没有后台角色） |
+> | 顾客 | `customer` | `POST /customer/auth/login`、`POST /customer/auth/wechat/login` | `customer:{id}` | 无（顾客永远没有后台角色） |
 >
 > 为什么必须拆表：顾客可以自助注册、数量级远大于员工、且不绑定商户（全局共享），
 > 和「必须属于某个商户、必须被管理员分配角色」的后台账号是完全不同的生命周期。
@@ -179,12 +183,14 @@ CREATE TABLE customer (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   phone VARCHAR(20) NOT NULL,
   password_hash VARCHAR(128),
+  wechat_openid VARCHAR(64) COMMENT '微信小程序 openid',
   nickname VARCHAR(64),
   status TINYINT NOT NULL DEFAULT 1,
   deleted TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除：1已删除 0正常',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uk_phone (phone)
+  UNIQUE KEY uk_phone (phone),
+  UNIQUE KEY uk_wechat_openid (wechat_openid)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
@@ -345,7 +351,8 @@ CREATE TABLE audit_log (
 | 方法 | 路径 | 说明 | 鉴权 |
 |---|---|---|---|
 | POST | /customer/auth/register | 顾客自助注册（手机号+密码），注册即登录返回 token | 否 |
-| POST | /customer/auth/login | 顾客登录 | 否 |
+| POST | /customer/auth/login | 顾客手机号 + 密码登录 | 否 |
+| POST | /customer/auth/wechat/login | 微信手机号快速登录（loginCode + phoneCode，未注册自动创建账号） | 否 |
 | POST | /customer/auth/logout | 顾客退出 | 顾客 |
 | GET | /customer/auth/me | 当前顾客信息 | 顾客 |
 | GET | /services | 服务项目列表 | 否 |

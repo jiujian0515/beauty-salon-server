@@ -33,8 +33,11 @@ public class Customer {
     /** 手机号（登录账号，顾客表内唯一；允许与 user 表同号） */
     private String phone;
 
-    /** 密码哈希（BCrypt，绝不存明文） */
+    /** 密码哈希（BCrypt，绝不存明文；微信快捷登录创建的账号可为 null） */
     private String passwordHash;
+
+    /** 微信小程序 openid（唯一；普通注册的顾客可为 null） */
+    private String wechatOpenid;
 
     /** 昵称 */
     private String nickname;

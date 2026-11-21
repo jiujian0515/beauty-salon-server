@@ -54,6 +54,11 @@ app:
     mock: true              # 演示环境开启模拟支付
     expire-minutes: 120     # 待支付占位时限（分钟）
     cancel-ahead-hours: 24  # 可取消提前量（小时）
+  wechat:
+    # 微信小程序凭据：通过环境变量注入，绝不提交到代码仓库
+    app-id: ${WECHAT_APP_ID:}
+    app-secret: ${WECHAT_APP_SECRET:}
+    api-base-url: https://api.weixin.qq.com
 
 # 服务监听端口
 server:

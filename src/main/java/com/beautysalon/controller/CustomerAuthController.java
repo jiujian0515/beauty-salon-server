@@ -5,6 +5,7 @@ import com.beautysalon.model.dto.CustomerInfoResponse;
 import com.beautysalon.model.dto.CustomerRegisterRequest;
 import com.beautysalon.model.dto.LoginRequest;
 import com.beautysalon.model.dto.LoginResponse;
+import com.beautysalon.model.dto.WechatPhoneLoginRequest;
 import com.beautysalon.service.CustomerAuthService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,7 +20,8 @@ import org.springframework.web.bind.annotation.RestController;
  * <table border="1">
  *   <tr><th>方法</th><th>路径</th><th>作用</th><th>是否需登录</th></tr>
  *   <tr><td>POST</td><td>/api/v1/customer/auth/register</td><td>自助注册（成功即返回 token）</td><td>否</td></tr>
- *   <tr><td>POST</td><td>/api/v1/customer/auth/login</td><td>登录</td><td>否</td></tr>
+ *   <tr><td>POST</td><td>/api/v1/customer/auth/login</td><td>手机号 + 密码登录</td><td>否</td></tr>
+ *   <tr><td>POST</td><td>/api/v1/customer/auth/wechat/login</td><td>微信手机号快速登录</td><td>否</td></tr>
  *   <tr><td>POST</td><td>/api/v1/customer/auth/logout</td><td>登出</td><td>是</td></tr>
  *   <tr><td>GET</td><td>/api/v1/customer/auth/me</td><td>当前顾客信息</td><td>是</td></tr>
  * </table>
@@ -42,10 +44,21 @@ public class CustomerAuthController {
         return Result.ok(customerAuthService.register(request));
     }
 
-    /** 顾客登录（已在 SaTokenConfig 中放行，无需登录） */
+    /** 顾客手机号 + 密码登录（已在 SaTokenConfig 中放行，无需登录） */
     @PostMapping("/login")
     public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return Result.ok(customerAuthService.login(request));
+    }
+
+    /**
+     * 微信手机号快速登录（已在 SaTokenConfig 中放行，无需登录）
+     *
+     * <p>前端先调用 wx.login() 拿 loginCode，再通过
+     * {@code <button open-type="getPhoneNumber">} 拿 phoneCode，一起提交。</p>
+     */
+    @PostMapping("/wechat/login")
+    public Result<LoginResponse> wechatLogin(@Valid @RequestBody WechatPhoneLoginRequest request) {
+        return Result.ok(customerAuthService.wechatLogin(request));
     }
 
     /** 顾客登出 */

@@ -56,4 +56,16 @@ public interface CustomerService {
      * @return 新建的顾客实体（含自增 id）
      */
     Customer createAccount(String phone, String rawPassword, String nickname, Integer status);
+
+    /**
+     * 微信手机号快捷登录：按手机号查找顾客，不存在则自动创建
+     *
+     * <p>微信登录创建的账号没有密码（password_hash 为 null），
+     * 后续可通过后台重置密码后使用密码登录。</p>
+     *
+     * @param phone  微信绑定的手机号
+     * @param openid 微信小程序 openid
+     * @return 已存在或新建的顾客实体
+     */
+    Customer findOrCreateByWechat(String phone, String openid);
 }
