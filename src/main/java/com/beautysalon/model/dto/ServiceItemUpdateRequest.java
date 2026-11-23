@@ -14,6 +14,10 @@ public class ServiceItemUpdateRequest {
     @Size(max = 128, message = "服务名称最长 128 个字符")
     private String name;
 
+    /** 新服务分类（不传表示不改；传了就不能为空） */
+    @Size(max = 64, message = "服务分类最长 64 个字符")
+    private String category;
+
     /** 新服务描述（不传表示不改） */
     @Size(max = 512, message = "服务描述最长 512 个字符")
     private String description;

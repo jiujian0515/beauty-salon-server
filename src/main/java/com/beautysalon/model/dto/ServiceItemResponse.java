@@ -21,6 +21,9 @@ public class ServiceItemResponse {
     /** 服务名称 */
     private String name;
 
+    /** 服务分类（商户自定义，不为空） */
+    private String category;
+
     /** 服务描述 */
     private String description;
 

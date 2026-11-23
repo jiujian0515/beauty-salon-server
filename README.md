@@ -355,7 +355,7 @@ CREATE TABLE audit_log (
 | POST | /customer/auth/wechat/login | 微信手机号快速登录（loginCode + phoneCode，未注册自动创建账号） | 否 |
 | POST | /customer/auth/logout | 顾客退出 | 顾客 |
 | GET | /customer/auth/me | 当前顾客信息 | 顾客 |
-| GET | /services | 服务项目列表 | 否 |
+| GET | /services | 服务项目列表（分页：page、size、keyword、merchantId、category，仅返回上架） | 否 |
 | GET | /slots | 可售时段（date、serviceId 参数） | 否 |
 | POST | /reservations | 创建预约（返回订单号+支付参数） | 顾客 |
 | POST | /payments/mock-pay | 模拟支付（演示触发成功回调） | 顾客 |
@@ -374,7 +374,7 @@ CREATE TABLE audit_log (
 | GET/POST/PUT/DELETE | /admin/roles | 角色 CRUD（ADMIN 角色不可改/删/重复创建） | ADMIN |
 | GET/POST/PUT/DELETE | /admin/customers | 顾客 CRUD（全局共享，支持 keyword 模糊查询） | ADMIN |
 | PUT | /admin/customers/{id}/password | 重置顾客密码 | ADMIN |
-| GET/POST/PUT/DELETE | /admin/services | 服务项目 CRUD | ADMIN |
+| GET/POST/PUT/DELETE | /admin/services | 服务项目 CRUD（列表支持 category 分类筛选） | ADMIN |
 | GET/POST/PUT/DELETE | /admin/resources | 资源 CRUD（STAFF 技师需绑定非管理员用户） | ADMIN |
 | GET | /admin/resources/staff-candidates | 技师候选用户（本商户非管理员、未绑定） | ADMIN |
 | GET/POST/PUT/DELETE | /admin/schedules | 排班 CRUD（保存时按 slotMinutes 自动生成时段库存） | 后台账号 |

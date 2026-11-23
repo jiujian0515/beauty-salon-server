@@ -41,14 +41,15 @@ public class ServiceItemController {
         this.serviceItemService = serviceItemService;
     }
 
-    /** 分页查询服务项目列表 */
+    /** 分页查询服务项目列表（category 可按分类精确筛选） */
     @GetMapping
     public Result<PageResult<ServiceItemResponse>> page(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) Integer status) {
-        return Result.ok(serviceItemService.page(page, size, keyword, status));
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String category) {
+        return Result.ok(serviceItemService.page(page, size, keyword, status, category));
     }
 
     /** 服务项目详情 */

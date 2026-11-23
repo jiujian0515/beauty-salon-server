@@ -24,6 +24,8 @@ import java.util.Objects;
 @Service
 public class ServiceItemServiceImpl implements ServiceItemService {
 
+    private static final int SERVICE_ITEM_ON_SHELF = 1;
+
     private final ServiceItemMapper serviceItemMapper;
     private final LoginContext loginContext;
 
@@ -34,7 +36,8 @@ public class ServiceItemServiceImpl implements ServiceItemService {
     }
 
     @Override
-    public PageResult<ServiceItemResponse> page(int page, int size, String keyword, Integer status) {
+    public PageResult<ServiceItemResponse> page(int page, int size, String keyword, Integer status,
+                                                String category) {
         long merchantId = loginContext.merchantId();
 
         LambdaQueryWrapper<ServiceItem> wrapper = new LambdaQueryWrapper<>();
@@ -44,6 +47,10 @@ public class ServiceItemServiceImpl implements ServiceItemService {
             wrapper.eq(ServiceItem::getStatus, status);
         }
 
+        if (StringUtils.hasText(category)) {
+            wrapper.eq(ServiceItem::getCategory, category.trim());
+        }
+
         if (StringUtils.hasText(keyword)) {
             String kw = keyword.trim();
             wrapper.and(w -> w.like(ServiceItem::getName, kw)
@@ -51,6 +58,38 @@ public class ServiceItemServiceImpl implements ServiceItemService {
         }
 
         wrapper.orderByDesc(ServiceItem::getId);
+
+        Page<ServiceItem> result = serviceItemMapper.selectPage(new Page<>(page, size), wrapper);
+
+        List<ServiceItemResponse> records = result.getRecords().stream()
+                .map(this::toResponse)
+                .toList();
+
+        return PageResult.of(result, records);
+    }
+
+    @Override
+    public PageResult<ServiceItemResponse> customerPage(int page, int size, String keyword, Long merchantId,
+                                                        String category) {
+        LambdaQueryWrapper<ServiceItem> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(ServiceItem::getStatus, SERVICE_ITEM_ON_SHELF);
+
+        if (merchantId != null) {
+            wrapper.eq(ServiceItem::getMerchantId, merchantId);
+        }
+
+        if (StringUtils.hasText(category)) {
+            wrapper.eq(ServiceItem::getCategory, category.trim());
+        }
+
+        if (StringUtils.hasText(keyword)) {
+            String kw = keyword.trim();
+            wrapper.and(w -> w.like(ServiceItem::getName, kw)
+                    .or().like(ServiceItem::getDescription, kw));
+        }
+
+        // 顾客端按创建顺序展示：先创建的服务项目排在前面
+        wrapper.orderByAsc(ServiceItem::getId);
 
         Page<ServiceItem> result = serviceItemMapper.selectPage(new Page<>(page, size), wrapper);
 
@@ -73,6 +112,7 @@ public class ServiceItemServiceImpl implements ServiceItemService {
         ServiceItem item = new ServiceItem();
         item.setMerchantId(merchantId);
         item.setName(request.getName());
+        item.setCategory(request.getCategory().trim());
         item.setDescription(request.getDescription());
         item.setDurationMinutes(request.getDurationMinutes());
         item.setPriceCents(request.getPriceCents());
@@ -89,6 +129,12 @@ public class ServiceItemServiceImpl implements ServiceItemService {
 
         if (StringUtils.hasText(request.getName())) {
             item.setName(request.getName());
+        }
+        if (request.getCategory() != null) {
+            if (!StringUtils.hasText(request.getCategory())) {
+                throw new BusinessException(ErrorCode.PARAM_ERROR, "服务分类不能为空");
+            }
+            item.setCategory(request.getCategory().trim());
         }
         if (request.getDescription() != null) {
             item.setDescription(request.getDescription());
@@ -131,6 +177,7 @@ public class ServiceItemServiceImpl implements ServiceItemService {
                 .id(item.getId())
                 .merchantId(item.getMerchantId())
                 .name(item.getName())
+                .category(item.getCategory())
                 .description(item.getDescription())
                 .durationMinutes(item.getDurationMinutes())
                 .priceCents(item.getPriceCents())

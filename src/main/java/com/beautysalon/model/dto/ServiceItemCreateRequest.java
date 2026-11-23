@@ -17,6 +17,11 @@ public class ServiceItemCreateRequest {
     @Size(max = 128, message = "服务名称最长 128 个字符")
     private String name;
 
+    /** 服务分类（必填，商户自定义） */
+    @NotBlank(message = "服务分类不能为空")
+    @Size(max = 64, message = "服务分类最长 64 个字符")
+    private String category;
+
     /** 服务描述 */
     @Size(max = 512, message = "服务描述最长 512 个字符")
     private String description;
