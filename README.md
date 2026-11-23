@@ -356,7 +356,8 @@ CREATE TABLE audit_log (
 | POST | /customer/auth/logout | 顾客退出 | 顾客 |
 | GET | /customer/auth/me | 当前顾客信息 | 顾客 |
 | GET | /services | 服务项目列表（分页：page、size、keyword、merchantId、category，仅返回上架） | 否 |
-| GET | /slots | 可售时段（date、serviceId 参数） | 否 |
+| GET | /resources | 美容师列表（分页：page、size、keyword、merchantId、type，仅返回启用资源，type 默认 STAFF） | 否 |
+| GET | /slots | 可售时段（date 必填；resourceId、merchantId 可选，仅返回可预约时段） | 否 |
 | POST | /reservations | 创建预约（返回订单号+支付参数） | 顾客 |
 | POST | /payments/mock-pay | 模拟支付（演示触发成功回调） | 顾客 |
 | POST | /payments/callback | 支付平台回调 | 签名 |

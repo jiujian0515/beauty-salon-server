@@ -1,6 +1,7 @@
 package com.beautysalon.service;
 
 import com.beautysalon.common.PageResult;
+import com.beautysalon.model.dto.CustomerResourceResponse;
 import com.beautysalon.model.dto.ResourceCreateRequest;
 import com.beautysalon.model.dto.ResourceResponse;
 import com.beautysalon.model.dto.ResourceUpdateRequest;
@@ -15,6 +16,14 @@ public interface ResourceService {
 
     /** 分页查询资源 */
     PageResult<ResourceResponse> page(int page, int size, String keyword, String type, Integer status);
+
+    /**
+     * 顾客端分页查询资源（美容师）
+     *
+     * <p>只返回启用资源；不传 type 时默认查 STAFF（美容师）。</p>
+     */
+    PageResult<CustomerResourceResponse> customerPage(int page, int size, String keyword,
+                                                      Long merchantId, String type);
 
     /** 查询资源详情 */
     ResourceResponse detail(Long id);

@@ -50,6 +50,8 @@ sa-token:
 # 业务自定义配置（后续可在代码里通过 @Value 或 @ConfigurationProperties 读取）
 app:
   timezone: Asia/Shanghai
+  booking:
+    lead-hours: 24          # 可预约提前量（小时）：时段开始时间需 ≥ 当前时间 + lead-hours
   payment:
     mock: true              # 演示环境开启模拟支付
     expire-minutes: 120     # 待支付占位时限（分钟）

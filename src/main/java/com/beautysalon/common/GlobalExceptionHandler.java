@@ -7,8 +7,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * 全局异常处理器（类比前端 axios 的 response 拦截器 + 全局错误兜底）
@@ -37,6 +39,14 @@ public class GlobalExceptionHandler {
                 : "参数错误";
         log.warn("参数校验失败：{}", message);
         return Result.fail(ErrorCode.PARAM_ERROR.getCode(), message);
+    }
+
+    /** 请求参数缺失或类型不匹配（如日期格式错误、id 传了非数字） */
+    @ExceptionHandler({MissingServletRequestParameterException.class,
+            MethodArgumentTypeMismatchException.class})
+    public Result<Void> handleParamError(Exception e) {
+        log.warn("请求参数错误：{}", e.getMessage());
+        return Result.fail(ErrorCode.PARAM_ERROR.getCode(), "参数格式错误");
     }
 
     /** 未登录（Sa-Token 校验失败时抛出） */

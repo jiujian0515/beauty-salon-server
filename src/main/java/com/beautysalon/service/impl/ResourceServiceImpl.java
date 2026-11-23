@@ -8,6 +8,7 @@ import com.beautysalon.common.LoginContext;
 import com.beautysalon.common.PageResult;
 import com.beautysalon.mapper.ResourceMapper;
 import com.beautysalon.mapper.UserMapper;
+import com.beautysalon.model.dto.CustomerResourceResponse;
 import com.beautysalon.model.dto.ResourceCreateRequest;
 import com.beautysalon.model.dto.ResourceResponse;
 import com.beautysalon.model.dto.ResourceUpdateRequest;
@@ -84,6 +85,39 @@ public class ResourceServiceImpl implements ResourceService {
 
         List<ResourceResponse> records = result.getRecords().stream()
                 .map(resource -> toResponse(resource, userMap.get(resource.getUserId())))
+                .toList();
+
+        return PageResult.of(result, records);
+    }
+
+    @Override
+    public PageResult<CustomerResourceResponse> customerPage(int page, int size, String keyword,
+                                                             Long merchantId, String type) {
+        String normalizedType = StringUtils.hasText(type)
+                ? normalizeAndValidateType(type)
+                : TYPE_STAFF;
+
+        LambdaQueryWrapper<Resource> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Resource::getStatus, 1)
+                .eq(Resource::getType, normalizedType);
+
+        if (merchantId != null) {
+            wrapper.eq(Resource::getMerchantId, merchantId);
+        }
+        if (StringUtils.hasText(keyword)) {
+            wrapper.like(Resource::getName, keyword.trim());
+        }
+
+        wrapper.orderByAsc(Resource::getId);
+
+        Page<Resource> result = resourceMapper.selectPage(new Page<>(page, size), wrapper);
+        List<CustomerResourceResponse> records = result.getRecords().stream()
+                .map(resource -> CustomerResourceResponse.builder()
+                        .id(resource.getId())
+                        .merchantId(resource.getMerchantId())
+                        .type(resource.getType())
+                        .name(resource.getName())
+                        .build())
                 .toList();
 
         return PageResult.of(result, records);

@@ -9,15 +9,19 @@ import com.beautysalon.common.PageResult;
 import com.beautysalon.mapper.ResourceMapper;
 import com.beautysalon.mapper.ScheduleMapper;
 import com.beautysalon.mapper.SlotInventoryMapper;
+import com.beautysalon.model.dto.AvailableSlotResponse;
 import com.beautysalon.model.dto.SlotInventoryResponse;
 import com.beautysalon.model.entity.Resource;
 import com.beautysalon.model.entity.Schedule;
 import com.beautysalon.model.entity.SlotInventory;
 import com.beautysalon.service.SlotInventoryService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -32,20 +36,27 @@ public class SlotInventoryServiceImpl implements SlotInventoryService {
     private static final int SLOT_SELLABLE = 1;
     private static final int SLOT_LOCKED = 0;
     private static final int SCHEDULE_ACTIVE = 1;
+    private static final int RESOURCE_ENABLED = 1;
 
     private final SlotInventoryMapper slotInventoryMapper;
     private final ScheduleMapper scheduleMapper;
     private final ResourceMapper resourceMapper;
     private final LoginContext loginContext;
+    private final ZoneId zoneId;
+    private final int leadHours;
 
     public SlotInventoryServiceImpl(SlotInventoryMapper slotInventoryMapper,
                                     ScheduleMapper scheduleMapper,
                                     ResourceMapper resourceMapper,
-                                    LoginContext loginContext) {
+                                    LoginContext loginContext,
+                                    @Value("${app.timezone:Asia/Shanghai}") String timezone,
+                                    @Value("${app.booking.lead-hours:24}") int leadHours) {
         this.slotInventoryMapper = slotInventoryMapper;
         this.scheduleMapper = scheduleMapper;
         this.resourceMapper = resourceMapper;
         this.loginContext = loginContext;
+        this.zoneId = ZoneId.of(timezone);
+        this.leadHours = leadHours;
     }
 
     @Override
@@ -79,6 +90,64 @@ public class SlotInventoryServiceImpl implements SlotInventoryService {
                 .map(slot -> toResponse(slot, resourceMap.get(slot.getResourceId())))
                 .toList();
         return PageResult.of(result, records);
+    }
+
+    @Override
+    public List<AvailableSlotResponse> availableSlots(LocalDate date, Long resourceId, Long merchantId) {
+        if (date == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "日期不能为空");
+        }
+        if (date.isBefore(LocalDate.now(zoneId))) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "日期不能早于今天");
+        }
+
+        Long effectiveMerchantId = merchantId;
+        if (resourceId != null) {
+            Resource resource = resourceMapper.selectById(resourceId);
+            if (resource == null) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "资源不存在");
+            }
+            if (effectiveMerchantId != null
+                    && !Objects.equals(resource.getMerchantId(), effectiveMerchantId)) {
+                throw new BusinessException(ErrorCode.PARAM_ERROR, "资源不属于该商户");
+            }
+            effectiveMerchantId = resource.getMerchantId();
+        }
+
+        LambdaQueryWrapper<SlotInventory> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(SlotInventory::getSlotDate, date)
+                .eq(SlotInventory::getStatus, SLOT_SELLABLE)
+                .apply("used < total");
+        if (resourceId != null) {
+            wrapper.eq(SlotInventory::getResourceId, resourceId);
+        }
+        if (effectiveMerchantId != null) {
+            wrapper.eq(SlotInventory::getMerchantId, effectiveMerchantId);
+        }
+        wrapper.orderByAsc(SlotInventory::getResourceId)
+                .orderByAsc(SlotInventory::getStartTime);
+
+        List<SlotInventory> slots = slotInventoryMapper.selectList(wrapper);
+        if (slots.isEmpty()) {
+            return List.of();
+        }
+
+        LocalDateTime earliestStart = LocalDateTime.now(zoneId).plusHours(leadHours);
+        Map<Long, Resource> resourceMap = loadResources(slots);
+        return slots.stream()
+                .filter(slot -> slot.getStartTime() != null
+                        && !LocalDateTime.of(slot.getSlotDate(), slot.getStartTime())
+                        .isBefore(earliestStart))
+                .map(slot -> {
+                    Resource resource = resourceMap.get(slot.getResourceId());
+                    if (resource == null || resource.getStatus() == null
+                            || resource.getStatus() != RESOURCE_ENABLED) {
+                        return null;
+                    }
+                    return toAvailableResponse(slot, resource);
+                })
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     @Override
@@ -154,6 +223,24 @@ public class SlotInventoryServiceImpl implements SlotInventoryService {
         }
         return resourceMapper.selectBatchIds(resourceIds).stream()
                 .collect(Collectors.toMap(Resource::getId, resource -> resource));
+    }
+
+    private AvailableSlotResponse toAvailableResponse(SlotInventory slot, Resource resource) {
+        int total = slot.getTotal() == null ? 0 : slot.getTotal();
+        int used = slot.getUsed() == null ? 0 : slot.getUsed();
+        return AvailableSlotResponse.builder()
+                .id(slot.getId())
+                .merchantId(slot.getMerchantId())
+                .resourceId(slot.getResourceId())
+                .resourceName(resource.getName())
+                .resourceType(resource.getType())
+                .slotDate(slot.getSlotDate())
+                .startTime(slot.getStartTime())
+                .endTime(slot.getEndTime())
+                .total(total)
+                .used(used)
+                .available(Math.max(total - used, 0))
+                .build();
     }
 
     private SlotInventoryResponse toResponse(SlotInventory slot, Resource resource) {
