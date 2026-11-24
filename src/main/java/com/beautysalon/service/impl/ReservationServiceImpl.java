@@ -322,6 +322,8 @@ public class ReservationServiceImpl implements ReservationService {
                 .serviceItemId(reservation.getServiceItemId())
                 .serviceItemName(serviceItem == null ? null : serviceItem.getName())
                 .serviceItemDurationMinutes(serviceItem == null ? null : serviceItem.getDurationMinutes())
+                .serviceItemCategory(serviceItem == null ? null : serviceItem.getCategory())
+                .serviceItemPriceCents(serviceItem == null ? null : serviceItem.getPriceCents())
                 .resourceId(reservation.getResourceId())
                 .resourceName(resource == null ? null : resource.getName())
                 .resourceType(resource == null ? null : resource.getType())

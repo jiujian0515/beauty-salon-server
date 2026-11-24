@@ -47,6 +47,12 @@ public class ReservationResponse {
     /** 服务时长（分钟） */
     private Integer serviceItemDurationMinutes;
 
+    /** 服务分类 code（下架或缺省可能为空） */
+    private String serviceItemCategory;
+
+    /** 服务价格（分） */
+    private Long serviceItemPriceCents;
+
     /** 资源 id（技师/床位） */
     private Long resourceId;
 

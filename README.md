@@ -356,6 +356,7 @@ CREATE TABLE audit_log (
 | POST | /customer/auth/wechat/login | 微信手机号快速登录（loginCode + phoneCode，未注册自动创建账号） | 否 |
 | POST | /customer/auth/logout | 顾客退出 | 顾客 |
 | GET | /customer/auth/me | 当前顾客信息 | 顾客 |
+| GET | /customer/profile | 当前顾客个人信息 + 预约统计（累计成功/待服务/待支付） | 顾客 |
 | GET | /services | 服务项目列表（分页：page、size、keyword、merchantId、category，仅返回上架） | 否 |
 | GET | /resources | 美容师列表（分页：page、size、keyword、merchantId、type，仅返回启用资源，type 默认 STAFF） | 否 |
 | GET | /slots | 可售时段（date 必填；resourceId、merchantId 可选，仅返回可预约时段） | 否 |
@@ -364,6 +365,31 @@ CREATE TABLE audit_log (
 | POST | /payments/callback | 支付平台异步回调（HMAC-SHA256 验签，返回纯文本 SUCCESS/FAIL） | 签名 |
 | GET | /reservations/mine | 我的预约 | 顾客 |
 | POST | /reservations/{id}/cancel | 取消预约 | 顾客 |
+
+`GET /customer/profile` 响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "customerId": 1,
+    "phone": "13800002108",
+    "nickname": "林舒意",
+    "status": 1,
+    "reservationStats": {
+      "completedCount": 3,
+      "pendingServiceCount": 1,
+      "pendingPaymentCount": 0
+    }
+  }
+}
+```
+
+- `completedCount`：累计成功预约，统计 `COMPLETED`（已完成）。
+- `pendingServiceCount`：待服务，统计 `CONFIRMED`（已确认、待到店）。
+- `pendingPaymentCount`：待支付，统计 `PENDING_PAYMENT`。
+- 统计只针对当前登录顾客；无预约时三项均为 `0`。
 
 ### 7.2 商户端
 

@@ -1,6 +1,7 @@
 package com.beautysalon.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.beautysalon.model.dto.ReservationStatsResponse;
 import com.beautysalon.model.entity.Reservation;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -32,6 +33,21 @@ public interface ReservationMapper extends BaseMapper<Reservation> {
             </script>
             """)
     long countBySlotIds(@Param("slotIds") List<Long> slotIds);
+
+    /**
+     * 统计指定顾客的预约数量：累计成功（已完成）、待服务、待支付
+     *
+     * <p>单条聚合查询替代三次 COUNT，无记录时三项均为 0。</p>
+     */
+    @Select("""
+            SELECT
+              COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END)       AS completedCount,
+              COUNT(CASE WHEN status = 'CONFIRMED' THEN 1 END)       AS pendingServiceCount,
+              COUNT(CASE WHEN status = 'PENDING_PAYMENT' THEN 1 END) AS pendingPaymentCount
+            FROM reservation
+            WHERE customer_id = #{customerId}
+            """)
+    ReservationStatsResponse countStatsByCustomerId(@Param("customerId") Long customerId);
 
     /**
      * 支付成功确认预约：只有 PENDING_PAYMENT 才能流转，重复回调影响行数为 0。
