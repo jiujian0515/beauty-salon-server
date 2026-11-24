@@ -26,4 +26,24 @@ public interface DepositTransactionMapper extends BaseMapper<DepositTransaction>
             WHERE out_trade_no = #{outTradeNo} AND status = 'PENDING'
             """)
     int markSuccess(@Param("outTradeNo") String outTradeNo);
+
+    /** 按预约单查询定金流水（一次预约最多一条） */
+    @Select("SELECT * FROM deposit_transaction WHERE reservation_id = #{reservationId} LIMIT 1")
+    DepositTransaction selectByReservationId(@Param("reservationId") Long reservationId);
+
+    /** 退款成功：SUCCESS → REFUNDED，同时记录退款时间 */
+    @Update("""
+            UPDATE deposit_transaction
+            SET status = 'REFUNDED', refunded_at = NOW()
+            WHERE reservation_id = #{reservationId} AND status = 'SUCCESS'
+            """)
+    int markRefunded(@Param("reservationId") Long reservationId);
+
+    /** 未支付订单取消：PENDING → EXPIRED */
+    @Update("""
+            UPDATE deposit_transaction
+            SET status = 'EXPIRED'
+            WHERE reservation_id = #{reservationId} AND status = 'PENDING'
+            """)
+    int markExpired(@Param("reservationId") Long reservationId);
 }

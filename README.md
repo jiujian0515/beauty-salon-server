@@ -559,16 +559,49 @@ CREATE TABLE audit_log (
 
 ### 8.5 取消与退款
 
+接口：`POST /api/v1/reservations/{id}/cancel`（顾客登录，仅能取消自己的预约）
+
 ```text
-1. 校验预约状态 = CONFIRMED
-2. 校验 now <= appointment_time - 24h（否则抛 40903）
-3. 事务：
-   a. reservation: CONFIRMED → REFUNDING
-   b. deposit_transaction: SUCCESS → REFUNDED（触发退款，演示为模拟）
-   c. slot_inventory: used-1 释放
-   d. reservation: REFUNDING → REFUNDED（或 CANCELLED）
-4. 写 audit_log
+按预约状态分流：
+A. PENDING_PAYMENT（未支付）
+   1. 不限时间，直接取消
+   2. 事务：reservation: PENDING_PAYMENT → CANCELLED（写 cancelled_at）
+           deposit_transaction: PENDING → EXPIRED
+           slot_inventory: used-1 释放
+B. CONFIRMED（已确认）
+   1. 校验 now <= appointment_time - cancel-ahead-hours（默认 24h，否则抛 40903）
+   2. 有 SUCCESS 定金流水（模拟退款）：
+      a. reservation: CONFIRMED → REFUNDING
+      b. deposit_transaction: SUCCESS → REFUNDED（写 refunded_at）
+      c. slot_inventory: used-1 释放
+      d. reservation: REFUNDING → REFUNDED
+   3. 无已支付定金（免定金/疗程）：
+      reservation: CONFIRMED → CANCELLED + 释放时段
+C. 其它状态 → 40902
+所有状态流转均为原子条件更新；重复取消返回当前终态（幂等）
+最后写 audit_log（action=CANCEL_RESERVATION, target_type=RESERVATION）
 ```
+
+响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "reservationId": 12,
+    "reservationNo": "R202501151030001",
+    "status": "REFUNDED",
+    "refunded": true,
+    "refundAmountCents": 5000,
+    "cancelledAt": "2025-01-15 10:30:00"
+  }
+}
+```
+
+- `status`：`CANCELLED`（未退款）或 `REFUNDED`（已退款）
+- `refunded`：是否发生退款；`refundAmountCents`：退款金额（分），未退款为 0
+- 错误码：`40902` 状态不允许取消、`40903` 不足提前量、`40401` 预约不存在、`40301` 非本人预约
 
 ### 8.6 排班与时段库存
 
@@ -600,6 +633,58 @@ CREATE TABLE audit_log (
 ```
 
 - 排班/时段/日历接口当前只做登录校验，角色权限由前端路由控制（后续可补 @SaCheckRole）。
+
+### 8.7 我的预约列表
+
+请求 `GET /api/v1/reservations/mine?page=1&size=10&status=CONFIRMED`（顾客登录）：
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| page | 否 | 页码，默认 1，必须 ≥ 1 |
+| size | 否 | 每页条数，默认 10，范围 1~100 |
+| status | 否 | 预约状态精确筛选，不区分大小写；非法值返回 40001 |
+
+允许的 `status`：`PENDING_PAYMENT` / `CONFIRMED` / `COMPLETED` / `CANCELLED` / `EXPIRED` / `REFUNDING` / `REFUNDED`。
+
+响应示例：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "records": [
+      {
+        "reservationId": 1,
+        "reservationNo": "R20261124153000123456",
+        "status": "CONFIRMED",
+        "isCourse": false,
+        "depositCents": 5000,
+        "appointmentTime": "2026-11-26 09:00:00",
+        "merchantId": 1,
+        "serviceItemId": 1,
+        "serviceItemName": "小气泡清洁",
+        "serviceItemDurationMinutes": 60,
+        "resourceId": 1,
+        "resourceName": "技师小王",
+        "resourceType": "STAFF",
+        "paidAt": "2026-11-24 15:31:02",
+        "cancelledAt": null,
+        "createdAt": "2026-11-24 15:30:00"
+      }
+    ],
+    "total": 1,
+    "page": 1,
+    "size": 10,
+    "pages": 1
+  }
+}
+```
+
+- 查询条件强制 `customer_id = 当前登录顾客`，不能查询他人预约。
+- 按 `appointment_time DESC, id DESC` 排序。
+- 服务项目/资源名称通过批量查询补充，避免列表 N+1；关联数据被删除时对应字段返回 `null`。
+- 本次不返回商户名称，仅返回 `merchantId`。
 
 ## 9. 鉴权与数据隔离
 

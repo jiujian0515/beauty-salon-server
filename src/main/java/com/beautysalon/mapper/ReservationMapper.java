@@ -42,4 +42,24 @@ public interface ReservationMapper extends BaseMapper<Reservation> {
             WHERE id = #{id} AND status = 'PENDING_PAYMENT'
             """)
     int confirmPaid(@Param("id") Long id);
+
+    /** 发起退款：CONFIRMED → REFUNDING（原子，重复操作影响行数为 0） */
+    @Update("UPDATE reservation SET status = 'REFUNDING' WHERE id = #{id} AND status = 'CONFIRMED'")
+    int markRefunding(@Param("id") Long id);
+
+    /** 退款完成：REFUNDING → REFUNDED，同时记录取消时间 */
+    @Update("""
+            UPDATE reservation
+            SET status = 'REFUNDED', cancelled_at = NOW()
+            WHERE id = #{id} AND status = 'REFUNDING'
+            """)
+    int markRefunded(@Param("id") Long id);
+
+    /** 直接取消：fromStatus → CANCELLED（用于未支付或无需退款） */
+    @Update("""
+            UPDATE reservation
+            SET status = 'CANCELLED', cancelled_at = NOW()
+            WHERE id = #{id} AND status = #{fromStatus}
+            """)
+    int markCancelled(@Param("id") Long id, @Param("fromStatus") String fromStatus);
 }

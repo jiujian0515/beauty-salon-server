@@ -75,6 +75,11 @@ public interface SlotInventoryMapper extends BaseMapper<SlotInventory> {
             + "WHERE id = #{id} AND used < total AND status = 1")
     int occupyOne(@Param("id") Long id);
 
+    /** 原子释放一个时段库存；used 已为 0 时影响行数为 0，不会减成负数 */
+    @Update("UPDATE slot_inventory SET used = used - 1, version = version + 1 "
+            + "WHERE id = #{id} AND used > 0")
+    int releaseOne(@Param("id") Long id);
+
     /**
      * 批量插入库存；唯一键冲突时只更新结束时间/容量/状态，保留已占用数。
      *
