@@ -66,6 +66,16 @@ public interface SlotInventoryMapper extends BaseMapper<SlotInventory> {
     int updateStatusById(@Param("id") Long id, @Param("status") Integer status);
 
     /**
+     * 原子占用一个时段库存（防超卖）
+     *
+     * <p>条件更新保证并发下不会把 {@code used} 加到超过 {@code total}：
+     * 影响行数为 0 表示时段已满、已锁定或不存在。</p>
+     */
+    @Update("UPDATE slot_inventory SET used = used + 1, version = version + 1 "
+            + "WHERE id = #{id} AND used < total AND status = 1")
+    int occupyOne(@Param("id") Long id);
+
+    /**
      * 批量插入库存；唯一键冲突时只更新结束时间/容量/状态，保留已占用数。
      *
      * <p>用于「保存排班 → 生成库存」的幂等写入。</p>

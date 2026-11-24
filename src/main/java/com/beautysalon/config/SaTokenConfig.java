@@ -35,6 +35,7 @@ public class SaTokenConfig implements WebMvcConfigurer {
                             "/api/v1/services",                // 服务项目列表（公开）
                             "/api/v1/resources",               // 美容师（资源）列表（公开）
                             "/api/v1/slots",                   // 可售时段查询（公开）
+                            "/api/v1/payments/callback",       // 支付平台回调（匿名，靠 HMAC 签名校验）
                             "/api/v1/ping"                     // 健康检查
                     )
                     .check(r -> StpUtil.checkLogin()); // 其余路径校验是否登录

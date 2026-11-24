@@ -15,3 +15,8 @@ spring:
     username: beautysalon
     password: beautysalon123
     driver-class-name: com.mysql.cj.jdbc.Driver
+
+app:
+  payment:
+    # 本地联调用的回调签名密钥；生产环境通过 PAYMENT_CALLBACK_SECRET 环境变量覆盖
+    callback-secret: ${PAYMENT_CALLBACK_SECRET:demo-payment-callback-secret}

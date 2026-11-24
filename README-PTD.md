@@ -167,6 +167,7 @@ WHERE id = #{id} AND used > 0;
 ```
 
 - 事务边界：创建预约 + 预占库存 + 写定金流水在同一数据库事务内。
+- 疗程预约（`is_course=1`）：定金强制为 0，不写定金流水，创建后直接 `CONFIRMED`。
 
 ### 5.2 支付回调幂等
 
@@ -181,7 +182,15 @@ SET status = 'SUCCESS', paid_at = NOW()
 WHERE out_trade_no = #{outTradeNo} AND status = 'PENDING';
 ```
 
-  3. 受影响行数 = 1 才继续：确认预约单（PENDING_PAYMENT → CONFIRMED）+ 最终扣减库存；= 0 说明已处理过，直接返回。
+  3. 受影响行数 = 1 才继续：确认预约单（PENDING_PAYMENT → CONFIRMED）；= 0 说明已处理过，直接返回。
+- 演示实现：`POST /api/v1/payments/mock-pay`（入参 `outTradeNo`）直接复用上述成功逻辑；
+  只能支付当前顾客自己的订单，重复调用幂等返回，预约本次确认成功时写 `audit_log`（action=`PAY_RESERVATION`）。
+- 支付平台回调：`POST /api/v1/payments/callback`（匿名 + HMAC-SHA256 验签）。
+  - 报文体全部字段（排除 `sign`/`signature`）按 key 升序拼成 `k1=v1&k2=v2`，
+    用 `app.payment.callback-secret` 做 HMAC-SHA256，小写十六进制与 `X-Pay-Signature` 比对。
+  - 先验签再查库；校验回调金额与流水金额一致；`tradeStatus != SUCCESS` 只记录日志并应答，不改状态。
+  - 响应为纯文本：成功/已处理返回 `SUCCESS`，失败返回 `FAIL` 由平台重试。
+  - 与 mock-pay 共用同一段结算逻辑，天然幂等；生产通过 `PAYMENT_CALLBACK_SECRET` 注入密钥。
 - 退款同理，只有 SUCCESS → REFUNDED 才执行「退定金 + 释放库存」。
 
 ### 5.3 超时释放
@@ -197,6 +206,8 @@ WHERE out_trade_no = #{outTradeNo} AND status = 'PENDING';
 PENDING_PAYMENT --支付成功--> CONFIRMED --核销--> COMPLETED
 PENDING_PAYMENT --超时/主动取消--> EXPIRED / CANCELLED
 CONFIRMED --顾客取消(>=24h)/商户取消--> REFUNDING --> REFUNDED
+
+疗程预约：创建即 CONFIRMED（is_course=1，免定金，不生成定金流水）
 ```
 
 - 所有状态流转用「当前状态作为 WHERE 条件」的原子更新，禁止先读后写。

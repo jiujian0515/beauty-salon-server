@@ -292,6 +292,7 @@ CREATE TABLE reservation (
   slot_inventory_id BIGINT NOT NULL,
   appointment_time DATETIME NOT NULL,
   deposit_cents BIGINT NOT NULL,
+  is_course TINYINT NOT NULL DEFAULT 0 COMMENT '是否疗程预约：1是（免定金） 0否',
   status VARCHAR(24) NOT NULL COMMENT 'PENDING_PAYMENT/CONFIRMED/COMPLETED/CANCELLED/EXPIRED/REFUNDING/REFUNDED',
   paid_at DATETIME,
   cancelled_at DATETIME,
@@ -358,9 +359,9 @@ CREATE TABLE audit_log (
 | GET | /services | 服务项目列表（分页：page、size、keyword、merchantId、category，仅返回上架） | 否 |
 | GET | /resources | 美容师列表（分页：page、size、keyword、merchantId、type，仅返回启用资源，type 默认 STAFF） | 否 |
 | GET | /slots | 可售时段（date 必填；resourceId、merchantId 可选，仅返回可预约时段） | 否 |
-| POST | /reservations | 创建预约（返回订单号+支付参数） | 顾客 |
-| POST | /payments/mock-pay | 模拟支付（演示触发成功回调） | 顾客 |
-| POST | /payments/callback | 支付平台回调 | 签名 |
+| POST | /reservations | 创建预约（普通预约返回订单号+支付参数；疗程预约免定金直接确认） | 顾客 |
+| POST | /payments/mock-pay | 模拟支付（入参 outTradeNo，演示触发成功回调，幂等） | 顾客 |
+| POST | /payments/callback | 支付平台异步回调（HMAC-SHA256 验签，返回纯文本 SUCCESS/FAIL） | 签名 |
 | GET | /reservations/mine | 我的预约 | 顾客 |
 | POST | /reservations/{id}/cancel | 取消预约 | 顾客 |
 
@@ -393,35 +394,158 @@ CREATE TABLE audit_log (
 
 ### 8.1 创建预约（下单）
 
+请求 `POST /api/v1/reservations`（顾客登录）：
+
+```json
+{
+  "serviceItemId": 1,
+  "slotId": 1,
+  "isCourse": false
+}
+```
+
+- `isCourse=false`：普通预约，按服务项目定金生成待支付预约单与定金流水。
+- `isCourse=true`：疗程预约，定金强制为 0，不生成定金流水，创建后直接 `CONFIRMED`。
+
+普通预约响应示例：
+
+```json
+{
+  "reservationId": 1,
+  "reservationNo": "R20261124153000123456",
+  "status": "PENDING_PAYMENT",
+  "isCourse": false,
+  "depositCents": 5000,
+  "paymentRequired": true,
+  "orderNo": "P20261124153000654321",
+  "appointmentTime": "2026-11-26 09:00:00",
+  "merchantId": 1,
+  "resourceId": 1,
+  "resourceName": "技师小王",
+  "slotId": 1,
+  "paymentParams": {
+    "channel": "MOCK",
+    "outTradeNo": "T20261124153000987654",
+    "amountCents": 5000,
+    "mockPay": true
+  }
+}
+```
+
+疗程预约响应：`status=CONFIRMED`、`isCourse=true`、`depositCents=0`、`paymentRequired=false`、
+`orderNo` 与 `paymentParams` 均为 `null`。
+
 伪代码（ReservationService.create）：
 
 ```text
 1. 校验服务项目存在且上架
-2. 校验预约时间 >= now + 24h（app.cancel-ahead-hours 相关规则）
-3. 计算对应 slot_inventory 行（resource + date + start）
-4. 开事务：
-   a. UPDATE slot_inventory SET used=used+1 WHERE id=? AND used<total
+2. 校验时段存在、可售、有剩余容量，且与服务项目属于同一商户、资源启用
+3. 校验预约时间 >= now + lead-hours（默认 24h）
+4. 计算定金：isCourse ? 0 : service_item.deposit_cents
+5. 开事务：
+   a. UPDATE slot_inventory SET used=used+1, version=version+1
+      WHERE id=? AND used<total AND status=1
       影响行数=0 → 抛 40901「时段已满」
-   b. INSERT reservation(status=PENDING_PAYMENT)
-   c. INSERT deposit_transaction(status=PENDING)
-5. 返回 order_no + 支付参数（演示环境为模拟支付链接）
+   b. INSERT reservation(
+        status = 需支付 ? PENDING_PAYMENT : CONFIRMED,
+        is_course = isCourse ? 1 : 0,
+        deposit_cents = 定金
+      )
+   c. 需支付时 INSERT deposit_transaction(status=PENDING)
+6. 需支付：返回 order_no + 模拟支付参数；否则直接返回已确认预约
 ```
 
-### 8.2 支付回调
+### 8.2 模拟支付
 
-伪代码（PaymentService.handleCallback）：
+请求 `POST /api/v1/payments/mock-pay`（顾客登录）：
+
+```json
+{
+  "outTradeNo": "T20261124153000987654"
+}
+```
+
+响应示例：
+
+```json
+{
+  "outTradeNo": "T20261124153000987654",
+  "orderNo": "P20261124153000654321",
+  "reservationId": 1,
+  "reservationNo": "R20261124153000123456",
+  "status": "CONFIRMED",
+  "amountCents": 5000,
+  "paidAt": "2026-11-24 15:31:02"
+}
+```
+
+演示环境直接复用支付回调成功逻辑，以 `out_trade_no` 为幂等键：
 
 ```text
-1. 校验回调签名（演示环境跳过）
-2. UPDATE deposit_transaction SET status='SUCCESS' WHERE out_trade_no=? AND status='PENDING'
-   影响行数=0 → 直接返回 success（幂等）
-3. UPDATE reservation SET status='CONFIRMED', paid_at=NOW()
+1. 校验当前顾客；按 out_trade_no 查流水，不存在 → 40401
+2. 校验预约归属当前顾客，否则 → 40301
+3. 流水已 SUCCESS → 幂等返回（必要时补确认预约）
+4. 流水非 PENDING 或预约非 PENDING_PAYMENT → 40902
+5. UPDATE deposit_transaction SET status='SUCCESS', paid_at=NOW()
+   WHERE out_trade_no=? AND status='PENDING'
+   影响行数=0 → 重查确认已 SUCCESS，否则 40902
+6. UPDATE reservation SET status='CONFIRMED', paid_at=NOW()
    WHERE id=? AND status='PENDING_PAYMENT'
-4. 写 audit_log
-5. 返回 success
+   影响行数=0 → 重查确认已 CONFIRMED，否则 40902（事务回滚）
+7. 预约本次确认成功时写 audit_log（action=PAY_RESERVATION）
+8. 返回预约最新状态、订单号、金额、支付时间
 ```
 
-### 8.3 超时释放
+- 库存在创建预约时已占用，支付成功不重复扣减。
+- 模拟支付只允许操作当前顾客自己的订单；真实支付平台的异步通知走 8.3 的回调接口。
+
+### 8.3 支付平台回调
+
+请求 `POST /api/v1/payments/callback`（匿名，无登录态，靠签名鉴权）：
+
+```json
+{
+  "outTradeNo": "T20261124153000987654",
+  "tradeStatus": "SUCCESS",
+  "amountCents": 5000
+}
+```
+
+请求头 `X-Pay-Signature: <hex>`（也兼容报文体 `sign` 字段）。
+
+签名算法（HMAC-SHA256，密钥为 `app.payment.callback-secret`）：
+
+```text
+1. 取报文体全部字段，排除 sign / signature
+2. 按 key 字典序升序拼成 k1=v1&k2=v2
+3. HMAC-SHA256(secret, 待签名串)，输出小写十六进制
+```
+
+示例待签名串：`amountCents=5000&outTradeNo=T20261124153000987654&tradeStatus=SUCCESS`
+
+响应为**纯文本**（不套 Result 结构，符合支付平台惯例）：
+
+- `SUCCESS`：已受理（含重复回调），平台无需重试
+- `FAIL`：验签失败 / 金额不符 / 状态非法 / 系统异常，平台按策略重试
+
+处理流程：
+
+```text
+1. 解析 JSON 报文；验签失败 → FAIL
+2. 校验 outTradeNo、tradeStatus、amountCents 必填
+3. 按 out_trade_no 查流水，不存在 → FAIL
+4. 回调金额与流水金额不一致 → FAIL（防篡改/串单）
+5. tradeStatus != SUCCESS：记录日志并应答 SUCCESS，不改变业务状态
+6. 与模拟支付共用结算逻辑：
+   流水 PENDING → SUCCESS（原子），预约 PENDING_PAYMENT → CONFIRMED（原子）
+   已 SUCCESS 则幂等返回；本次确认成功才写 audit_log
+7. 应答 SUCCESS
+```
+
+- 回调入口在 Sa-Token 白名单中，匿名可访问；验签在任何数据库操作之前执行。
+- 生产必须通过环境变量 `PAYMENT_CALLBACK_SECRET` 注入密钥；留空时所有回调验签失败。
+
+### 8.4 超时释放
 
 伪代码（Job 每分钟）：
 
@@ -433,7 +557,7 @@ CREATE TABLE audit_log (
                  UPDATE deposit_transaction SET status='EXPIRED' WHERE reservation_id=? AND status='PENDING'
 ```
 
-### 8.4 取消与退款
+### 8.5 取消与退款
 
 ```text
 1. 校验预约状态 = CONFIRMED
@@ -446,7 +570,7 @@ CREATE TABLE audit_log (
 4. 写 audit_log
 ```
 
-### 8.5 排班与时段库存
+### 8.6 排班与时段库存
 
 ```text
 保存排班（新增/批量）：
@@ -487,7 +611,7 @@ CREATE TABLE audit_log (
 
 | 任务 | 频率 | 说明 |
 |---|---|---|
-| 超时释放 | 每分钟 | 见 8.3 |
+| 超时释放 | 每分钟 | 见 8.4 |
 | 到期提醒（可选） | 每小时 | 预约前 N 小时提醒（演示可略） |
 
 - 均显式 zone = Asia/Shanghai，逻辑幂等可重入。
