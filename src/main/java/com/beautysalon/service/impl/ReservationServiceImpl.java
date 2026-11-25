@@ -5,17 +5,22 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.beautysalon.common.BusinessException;
 import com.beautysalon.common.CustomerContext;
 import com.beautysalon.common.ErrorCode;
+import com.beautysalon.common.LoginContext;
 import com.beautysalon.common.PageResult;
 import com.beautysalon.mapper.AuditLogMapper;
+import com.beautysalon.mapper.CustomerMapper;
 import com.beautysalon.mapper.DepositTransactionMapper;
 import com.beautysalon.mapper.ReservationMapper;
 import com.beautysalon.mapper.ResourceMapper;
 import com.beautysalon.mapper.ServiceItemMapper;
 import com.beautysalon.mapper.SlotInventoryMapper;
+import com.beautysalon.model.dto.ReservationAdminResponse;
 import com.beautysalon.model.dto.ReservationCancelResponse;
 import com.beautysalon.model.dto.ReservationCreateRequest;
 import com.beautysalon.model.dto.ReservationCreateResponse;
 import com.beautysalon.model.dto.ReservationResponse;
+import com.beautysalon.model.dto.ReservationVerifyRequest;
+import com.beautysalon.model.dto.ReservationVerifyResponse;
 import com.beautysalon.model.entity.AuditLog;
 import com.beautysalon.model.entity.Customer;
 import com.beautysalon.model.entity.DepositTransaction;
@@ -29,6 +34,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -54,13 +60,17 @@ public class ReservationServiceImpl implements ReservationService {
 
     private static final String STATUS_PENDING_PAYMENT = "PENDING_PAYMENT";
     private static final String STATUS_CONFIRMED = "CONFIRMED";
+    private static final String STATUS_COMPLETED = "COMPLETED";
     private static final String STATUS_CANCELLED = "CANCELLED";
+    private static final String STATUS_REFUNDING = "REFUNDING";
     private static final String STATUS_REFUNDED = "REFUNDED";
+    private static final String STATUS_EXPIRED = "EXPIRED";
     private static final String TX_PENDING = "PENDING";
     private static final String TX_SUCCESS = "SUCCESS";
     private static final String TX_REFUNDED = "REFUNDED";
     private static final String CHANNEL_MOCK = "MOCK";
     private static final String ACTION_CANCEL_RESERVATION = "CANCEL_RESERVATION";
+    private static final String ACTION_VERIFY_RESERVATION = "VERIFY_RESERVATION";
     private static final String TARGET_RESERVATION = "RESERVATION";
 
     /** 预约单允许的状态（用于「我的预约」筛选参数校验） */
@@ -77,7 +87,9 @@ public class ReservationServiceImpl implements ReservationService {
     private final SlotInventoryMapper slotInventoryMapper;
     private final ResourceMapper resourceMapper;
     private final AuditLogMapper auditLogMapper;
+    private final CustomerMapper customerMapper;
     private final CustomerContext customerContext;
+    private final LoginContext loginContext;
     private final ZoneId zoneId;
     private final int leadHours;
     private final int cancelAheadHours;
@@ -88,7 +100,9 @@ public class ReservationServiceImpl implements ReservationService {
                                   SlotInventoryMapper slotInventoryMapper,
                                   ResourceMapper resourceMapper,
                                   AuditLogMapper auditLogMapper,
+                                  CustomerMapper customerMapper,
                                   CustomerContext customerContext,
+                                  LoginContext loginContext,
                                   @Value("${app.timezone:Asia/Shanghai}") String timezone,
                                   @Value("${app.booking.lead-hours:24}") int leadHours,
                                   @Value("${app.payment.cancel-ahead-hours:24}") int cancelAheadHours) {
@@ -98,7 +112,9 @@ public class ReservationServiceImpl implements ReservationService {
         this.slotInventoryMapper = slotInventoryMapper;
         this.resourceMapper = resourceMapper;
         this.auditLogMapper = auditLogMapper;
+        this.customerMapper = customerMapper;
         this.customerContext = customerContext;
+        this.loginContext = loginContext;
         this.zoneId = ZoneId.of(timezone);
         this.leadHours = leadHours;
         this.cancelAheadHours = cancelAheadHours;
@@ -171,6 +187,7 @@ public class ReservationServiceImpl implements ReservationService {
         reservation.setDepositCents(depositCents);
         reservation.setIsCourse(course ? 1 : 0);
         reservation.setStatus(paymentRequired ? STATUS_PENDING_PAYMENT : STATUS_CONFIRMED);
+        reservation.setVerifyCode(generateVerifyCode(slot.getMerchantId()));
         reservation.setVersion(0);
         reservationMapper.insert(reservation);
 
@@ -199,6 +216,8 @@ public class ReservationServiceImpl implements ReservationService {
                 .reservationId(reservation.getId())
                 .reservationNo(reservation.getReservationNo())
                 .status(reservation.getStatus())
+                .verifyCode(isVerifyCodeVisible(reservation.getStatus())
+                        ? reservation.getVerifyCode() : null)
                 .isCourse(course)
                 .depositCents(depositCents)
                 .paymentRequired(paymentRequired)
@@ -315,6 +334,8 @@ public class ReservationServiceImpl implements ReservationService {
                 .reservationId(reservation.getId())
                 .reservationNo(reservation.getReservationNo())
                 .status(reservation.getStatus())
+                .verifyCode(isVerifyCodeVisible(reservation.getStatus())
+                        ? reservation.getVerifyCode() : null)
                 .isCourse(reservation.getIsCourse() != null && reservation.getIsCourse() == 1)
                 .depositCents(reservation.getDepositCents())
                 .appointmentTime(reservation.getAppointmentTime())
@@ -332,6 +353,231 @@ public class ReservationServiceImpl implements ReservationService {
                 .cancelledAt(reservation.getCancelledAt())
                 .createdAt(reservation.getCreatedAt())
                 .build();
+    }
+
+    @Override
+    public PageResult<ReservationAdminResponse> adminPage(int page, int size, String status,
+                                                          String verifyCode, String keyword,
+                                                          LocalDate startDate, LocalDate endDate) {
+        long merchantId = loginContext.merchantId();
+        validateDateRange(startDate, endDate);
+
+        LambdaQueryWrapper<Reservation> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Reservation::getMerchantId, merchantId);
+
+        String normalizedStatus = normalizeStatus(status);
+        if (normalizedStatus != null) {
+            wrapper.eq(Reservation::getStatus, normalizedStatus);
+        }
+        if (StringUtils.hasText(verifyCode)) {
+            wrapper.eq(Reservation::getVerifyCode, verifyCode.trim());
+        }
+        if (startDate != null) {
+            wrapper.ge(Reservation::getAppointmentTime, startDate.atStartOfDay());
+        }
+        if (endDate != null) {
+            wrapper.lt(Reservation::getAppointmentTime, endDate.plusDays(1).atStartOfDay());
+        }
+        if (StringUtils.hasText(keyword)) {
+            String kw = keyword.trim();
+            List<Long> customerIds = findCustomerIdsByKeyword(kw);
+            wrapper.and(w -> {
+                w.like(Reservation::getReservationNo, kw)
+                        .or().like(Reservation::getVerifyCode, kw);
+                if (!customerIds.isEmpty()) {
+                    w.or().in(Reservation::getCustomerId, customerIds);
+                }
+            });
+        }
+        wrapper.orderByDesc(Reservation::getAppointmentTime)
+                .orderByDesc(Reservation::getId);
+
+        Page<Reservation> result = reservationMapper.selectPage(new Page<>(page, size), wrapper);
+        List<Reservation> reservations = result.getRecords();
+
+        Map<Long, ServiceItem> serviceItemMap = loadServiceItems(reservations);
+        Map<Long, Resource> resourceMap = loadResources(reservations);
+        Map<Long, Customer> customerMap = loadCustomers(reservations);
+
+        List<ReservationAdminResponse> records = reservations.stream()
+                .map(reservation -> toAdminResponse(
+                        reservation,
+                        serviceItemMap.get(reservation.getServiceItemId()),
+                        resourceMap.get(reservation.getResourceId()),
+                        customerMap.get(reservation.getCustomerId())))
+                .toList();
+
+        return PageResult.of(result, records);
+    }
+
+    @Override
+    public ReservationAdminResponse adminDetail(Long id) {
+        long merchantId = loginContext.merchantId();
+        Reservation reservation = reservationMapper.selectById(id);
+        if (reservation == null || !Objects.equals(reservation.getMerchantId(), merchantId)) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "预约单不存在");
+        }
+        return toAdminResponse(reservation,
+                serviceItemMapper.selectById(reservation.getServiceItemId()),
+                resourceMapper.selectById(reservation.getResourceId()),
+                customerMapper.selectById(reservation.getCustomerId()));
+    }
+
+    @Override
+    @Transactional
+    public ReservationVerifyResponse verify(ReservationVerifyRequest request) {
+        long merchantId = loginContext.merchantId();
+        long operatorId = loginContext.userId();
+        String verifyCode = request.getVerifyCode().trim();
+
+        Reservation reservation =
+                reservationMapper.selectByMerchantAndVerifyCode(merchantId, verifyCode);
+        if (reservation == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "核销码不存在");
+        }
+        if (!STATUS_CONFIRMED.equals(reservation.getStatus())) {
+            throw new BusinessException(ErrorCode.STATUS_INVALID,
+                    verifyStatusMessage(reservation.getStatus()));
+        }
+
+        int changed = reservationMapper.verifyByCode(merchantId, verifyCode, operatorId);
+        if (changed == 0) {
+            // 并发场景下可能已被其他终端核销，或状态已变更
+            Reservation latest =
+                    reservationMapper.selectByMerchantAndVerifyCode(merchantId, verifyCode);
+            if (latest != null && STATUS_COMPLETED.equals(latest.getStatus())) {
+                throw new BusinessException(ErrorCode.STATUS_INVALID, "该预约已核销，请勿重复操作");
+            }
+            throw new BusinessException(ErrorCode.STATUS_INVALID, "预约状态已变更，无法核销");
+        }
+
+        Reservation verified =
+                reservationMapper.selectByMerchantAndVerifyCode(merchantId, verifyCode);
+        writeVerifyAuditLog(verified, operatorId);
+        return toVerifyResponse(verified);
+    }
+
+    /** 核销单查询：按手机号/昵称模糊匹配顾客 */
+    private List<Long> findCustomerIdsByKeyword(String keyword) {
+        LambdaQueryWrapper<Customer> wrapper = new LambdaQueryWrapper<>();
+        wrapper.select(Customer::getId)
+                .and(w -> w.like(Customer::getPhone, keyword)
+                        .or().like(Customer::getNickname, keyword));
+        return customerMapper.selectList(wrapper).stream()
+                .map(Customer::getId)
+                .toList();
+    }
+
+    /** 批量查当前页涉及的顾客 */
+    private Map<Long, Customer> loadCustomers(List<Reservation> reservations) {
+        List<Long> ids = reservations.stream()
+                .map(Reservation::getCustomerId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return customerMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(Customer::getId, customer -> customer));
+    }
+
+    private void validateDateRange(LocalDate startDate, LocalDate endDate) {
+        if (startDate != null && endDate != null && endDate.isBefore(startDate)) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "结束日期不能早于开始日期");
+        }
+    }
+
+    private String verifyStatusMessage(String status) {
+        return switch (status) {
+            case STATUS_PENDING_PAYMENT -> "预约尚未支付定金，无法核销";
+            case STATUS_COMPLETED -> "该预约已核销，请勿重复操作";
+            case STATUS_CANCELLED, STATUS_REFUNDING, STATUS_REFUNDED, STATUS_EXPIRED ->
+                    "预约已取消或已退款，无法核销";
+            default -> "预约当前状态不允许核销";
+        };
+    }
+
+    private ReservationAdminResponse toAdminResponse(Reservation reservation,
+                                                     ServiceItem serviceItem,
+                                                     Resource resource,
+                                                     Customer customer) {
+        return ReservationAdminResponse.builder()
+                .reservationId(reservation.getId())
+                .reservationNo(reservation.getReservationNo())
+                .verifyCode(reservation.getVerifyCode())
+                .status(reservation.getStatus())
+                .isCourse(reservation.getIsCourse() != null && reservation.getIsCourse() == 1)
+                .depositCents(reservation.getDepositCents())
+                .appointmentTime(reservation.getAppointmentTime())
+                .customerId(reservation.getCustomerId())
+                .customerNickname(customer == null ? null : customer.getNickname())
+                .customerPhone(customer == null ? null : customer.getPhone())
+                .serviceItemId(reservation.getServiceItemId())
+                .serviceItemName(serviceItem == null ? null : serviceItem.getName())
+                .serviceItemDurationMinutes(serviceItem == null ? null : serviceItem.getDurationMinutes())
+                .serviceItemCategory(serviceItem == null ? null : serviceItem.getCategory())
+                .serviceItemPriceCents(serviceItem == null ? null : serviceItem.getPriceCents())
+                .resourceId(reservation.getResourceId())
+                .resourceName(resource == null ? null : resource.getName())
+                .resourceType(resource == null ? null : resource.getType())
+                .paidAt(reservation.getPaidAt())
+                .cancelledAt(reservation.getCancelledAt())
+                .verifiedAt(reservation.getVerifiedAt())
+                .verifiedBy(reservation.getVerifiedBy())
+                .createdAt(reservation.getCreatedAt())
+                .build();
+    }
+
+    private ReservationVerifyResponse toVerifyResponse(Reservation reservation) {
+        ServiceItem serviceItem = reservation.getServiceItemId() == null
+                ? null : serviceItemMapper.selectById(reservation.getServiceItemId());
+        Resource resource = reservation.getResourceId() == null
+                ? null : resourceMapper.selectById(reservation.getResourceId());
+        Customer customer = reservation.getCustomerId() == null
+                ? null : customerMapper.selectById(reservation.getCustomerId());
+
+        return ReservationVerifyResponse.builder()
+                .reservationId(reservation.getId())
+                .reservationNo(reservation.getReservationNo())
+                .verifyCode(reservation.getVerifyCode())
+                .status(reservation.getStatus())
+                .customerId(reservation.getCustomerId())
+                .customerNickname(customer == null ? null : customer.getNickname())
+                .customerPhone(customer == null ? null : customer.getPhone())
+                .appointmentTime(reservation.getAppointmentTime())
+                .serviceItemName(serviceItem == null ? null : serviceItem.getName())
+                .resourceName(resource == null ? null : resource.getName())
+                .verifiedAt(reservation.getVerifiedAt())
+                .verifiedBy(reservation.getVerifiedBy())
+                .build();
+    }
+
+    private void writeVerifyAuditLog(Reservation reservation, long operatorId) {
+        AuditLog auditLog = new AuditLog();
+        auditLog.setMerchantId(reservation.getMerchantId());
+        auditLog.setActorId(operatorId);
+        auditLog.setAction(ACTION_VERIFY_RESERVATION);
+        auditLog.setTargetType(TARGET_RESERVATION);
+        auditLog.setTargetId(reservation.getId());
+        auditLog.setDetail("商户核销预约，verifyCode=" + reservation.getVerifyCode());
+        auditLogMapper.insert(auditLog);
+    }
+
+    /** 生成商户内唯一的 6 位数字核销码 */
+    private String generateVerifyCode(long merchantId) {
+        for (int i = 0; i < 20; i++) {
+            String code = String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000));
+            if (reservationMapper.countByMerchantAndVerifyCode(merchantId, code) == 0) {
+                return code;
+            }
+        }
+        throw new BusinessException(ErrorCode.SYSTEM_ERROR, "核销码生成失败，请稍后重试");
+    }
+
+    /** 核销码只对已确认/已完成的预约可见 */
+    private boolean isVerifyCodeVisible(String status) {
+        return STATUS_CONFIRMED.equals(status) || STATUS_COMPLETED.equals(status);
     }
 
     /** 生成业务号：前缀 + 秒级时间 + 6 位随机数，长度 21，满足 VARCHAR(32)。 */

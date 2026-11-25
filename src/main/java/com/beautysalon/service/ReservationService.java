@@ -1,10 +1,15 @@
 package com.beautysalon.service;
 
 import com.beautysalon.common.PageResult;
+import com.beautysalon.model.dto.ReservationAdminResponse;
 import com.beautysalon.model.dto.ReservationCancelResponse;
 import com.beautysalon.model.dto.ReservationCreateRequest;
 import com.beautysalon.model.dto.ReservationCreateResponse;
 import com.beautysalon.model.dto.ReservationResponse;
+import com.beautysalon.model.dto.ReservationVerifyRequest;
+import com.beautysalon.model.dto.ReservationVerifyResponse;
+
+import java.time.LocalDate;
 
 /**
  * 预约服务
@@ -38,4 +43,37 @@ public interface ReservationService {
      * @return 取消结果（含是否退款及金额）
      */
     ReservationCancelResponse cancel(Long id);
+
+    /**
+     * 商户分页查询本商户预约单（核销单查询）
+     *
+     * @param page       页码（从 1 开始）
+     * @param size       每页条数
+     * @param status     可选，预约状态精确筛选（不区分大小写）
+     * @param verifyCode 可选，核销码精确筛选
+     * @param keyword    可选，模糊匹配预约号 / 核销码 / 顾客手机号 / 顾客昵称
+     * @param startDate  可选，预约日期起（含）
+     * @param endDate    可选，预约日期止（含）
+     * @return 按预约时间倒序的分页结果
+     */
+    PageResult<ReservationAdminResponse> adminPage(int page, int size, String status,
+                                                   String verifyCode, String keyword,
+                                                   LocalDate startDate, LocalDate endDate);
+
+    /**
+     * 商户查看本商户预约单详情
+     *
+     * @param id 预约单 id
+     */
+    ReservationAdminResponse adminDetail(Long id);
+
+    /**
+     * 商户核销预约：CONFIRMED → COMPLETED
+     *
+     * <p>按核销码定位本商户的预约单，原子流转状态并记录核销人与核销时间。</p>
+     *
+     * @param request 核销请求（6 位核销码）
+     * @return 核销结果
+     */
+    ReservationVerifyResponse verify(ReservationVerifyRequest request);
 }

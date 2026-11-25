@@ -55,11 +55,20 @@ public class Reservation {
     /** 状态：PENDING_PAYMENT/CONFIRMED/COMPLETED/CANCELLED/EXPIRED/REFUNDING/REFUNDED */
     private String status;
 
+    /** 核销码（6 位数字，商户内唯一；历史数据可能为空） */
+    private String verifyCode;
+
     /** 支付时间 */
     private LocalDateTime paidAt;
 
     /** 取消时间 */
     private LocalDateTime cancelledAt;
+
+    /** 核销时间 */
+    private LocalDateTime verifiedAt;
+
+    /** 核销人（后台用户 id） */
+    private Long verifiedBy;
 
     /** 乐观锁版本号 */
     private Integer version;

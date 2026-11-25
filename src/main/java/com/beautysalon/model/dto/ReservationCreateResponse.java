@@ -26,6 +26,9 @@ public class ReservationCreateResponse {
     /** 预约状态 */
     private String status;
 
+    /** 核销码（创建即确认时有值；待支付时为 null） */
+    private String verifyCode;
+
     /** 是否疗程预约 */
     private Boolean isCourse;
 

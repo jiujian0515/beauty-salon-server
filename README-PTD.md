@@ -93,7 +93,7 @@ flowchart LR
 - resource：资源（技师 STAFF / 床位 ROOM）
 - schedule：排班（可售窗口）
 - slot_inventory：时段库存（独立成行，防超卖）
-- reservation：预约单
+- reservation：预约单（含 6 位核销码 verify_code，到店核销用）
 - deposit_transaction：定金流水
 - audit_log：关键操作审计
 
@@ -211,6 +211,7 @@ CONFIRMED --顾客取消(>=24h)/商户取消--> REFUNDING --> REFUNDED
 ```
 
 - 所有状态流转用「当前状态作为 WHERE 条件」的原子更新，禁止先读后写。
+- 核销：商户后台凭 6 位核销码（verify_code，商户内唯一）将 `CONFIRMED` 原子更新为 `COMPLETED`，同时写 `verified_at`/`verified_by` 和 `audit_log`（action=`VERIFY_RESERVATION`），重复核销返回 40902。
 
 ### 5.5 定金流水状态机
 
@@ -238,7 +239,7 @@ PENDING --> FAILED / EXPIRED
 
 - 统一前缀：/api/v1，统一响应结构 { code, message, data }。
 - 顾客端：登录、服务列表、可售时段、创建预约、模拟支付、支付回调、我的预约、取消。
-- 商户端：登录、服务/资源/排班 CRUD、日历、锁定/释放、预约列表、核销。
+- 商户端：登录、服务/资源/排班 CRUD、日历、锁定/释放、核销单列表/详情、凭核销码核销。
 
 ## 7. 权限与鉴权
 

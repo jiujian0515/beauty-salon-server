@@ -25,6 +25,9 @@ public class ReservationResponse {
     /** 预约状态 */
     private String status;
 
+    /** 核销码（仅 CONFIRMED / COMPLETED 时返回，其余状态为 null） */
+    private String verifyCode;
+
     /** 是否疗程预约 */
     private Boolean isCourse;
 

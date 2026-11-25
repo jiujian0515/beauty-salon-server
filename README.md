@@ -294,12 +294,16 @@ CREATE TABLE reservation (
   deposit_cents BIGINT NOT NULL,
   is_course TINYINT NOT NULL DEFAULT 0 COMMENT '是否疗程预约：1是（免定金） 0否',
   status VARCHAR(24) NOT NULL COMMENT 'PENDING_PAYMENT/CONFIRMED/COMPLETED/CANCELLED/EXPIRED/REFUNDING/REFUNDED',
+  verify_code VARCHAR(8) COMMENT '核销码（6位数字，商户内唯一）',
   paid_at DATETIME,
   cancelled_at DATETIME,
+  verified_at DATETIME COMMENT '核销时间',
+  verified_by BIGINT COMMENT '核销人（后台用户 id）',
   version INT NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uk_reservation_no (reservation_no),
+  UNIQUE KEY uk_merchant_verify_code (merchant_id, verify_code),
   KEY idx_status_created (status, created_at),
   KEY idx_merchant (merchant_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -360,11 +364,13 @@ CREATE TABLE audit_log (
 | GET | /services | 服务项目列表（分页：page、size、keyword、merchantId、category，仅返回上架） | 否 |
 | GET | /resources | 美容师列表（分页：page、size、keyword、merchantId、type，仅返回启用资源，type 默认 STAFF） | 否 |
 | GET | /slots | 可售时段（date 必填；resourceId、merchantId 可选，仅返回可预约时段） | 否 |
-| POST | /reservations | 创建预约（普通预约返回订单号+支付参数；疗程预约免定金直接确认） | 顾客 |
+| POST | /reservations | 创建预约（普通预约返回订单号+支付参数；疗程预约免定金直接确认并返回核销码） | 顾客 |
 | POST | /payments/mock-pay | 模拟支付（入参 outTradeNo，演示触发成功回调，幂等） | 顾客 |
 | POST | /payments/callback | 支付平台异步回调（HMAC-SHA256 验签，返回纯文本 SUCCESS/FAIL） | 签名 |
-| GET | /reservations/mine | 我的预约 | 顾客 |
+| GET | /reservations/mine | 我的预约（状态为 CONFIRMED/COMPLETED 时返回核销码 verifyCode） | 顾客 |
 | POST | /reservations/{id}/cancel | 取消预约 | 顾客 |
+
+- 核销码 `verifyCode` 在创建预约时生成（6 位数字，商户内唯一），仅当状态为 `CONFIRMED`/`COMPLETED` 时返回给顾客；普通预约需支付成功后才可见。
 
 `GET /customer/profile` 响应示例：
 
@@ -413,8 +419,12 @@ CREATE TABLE audit_log (
 | GET | /admin/slots | 时段库存分页（resourceId/日期/status 过滤） | 后台账号 |
 | POST | /admin/slots/{id}/lock | 锁定时段 | 后台账号 |
 | POST | /admin/slots/{id}/unlock | 释放时段 | 后台账号 |
-| GET | /admin/reservations | 预约列表 | STAFF/ADMIN |
-| POST | /admin/reservations/{id}/verify | 发起核销 | STAFF/ADMIN |
+| GET | /admin/reservations | 核销单列表（status、verifyCode、keyword、startDate、endDate、page、size） | STAFF/ADMIN |
+| GET | /admin/reservations/{id} | 核销单详情（仅限本商户） | STAFF/ADMIN |
+| POST | /admin/reservations/verify | 凭核销码核销：CONFIRMED → COMPLETED | STAFF/ADMIN |
+
+- `keyword` 同时匹配预约单号、核销码、顾客手机号/昵称；`startDate`/`endDate` 按预约时间过滤。
+- 核销接口入参为 `{"verifyCode":"123456"}`，不依赖预约 id。
 
 ## 8. 核心模块实现要点
 
@@ -440,6 +450,7 @@ CREATE TABLE audit_log (
   "reservationId": 1,
   "reservationNo": "R20261124153000123456",
   "status": "PENDING_PAYMENT",
+  "verifyCode": null,
   "isCourse": false,
   "depositCents": 5000,
   "paymentRequired": true,
@@ -459,7 +470,8 @@ CREATE TABLE audit_log (
 ```
 
 疗程预约响应：`status=CONFIRMED`、`isCourse=true`、`depositCents=0`、`paymentRequired=false`、
-`orderNo` 与 `paymentParams` 均为 `null`。
+`orderNo` 与 `paymentParams` 均为 `null`，并返回 6 位核销码 `verifyCode`。
+普通预约在支付成功转为 `CONFIRMED` 后，`GET /reservations/mine` 才会返回该核销码。
 
 伪代码（ReservationService.create）：
 
@@ -475,7 +487,8 @@ CREATE TABLE audit_log (
    b. INSERT reservation(
         status = 需支付 ? PENDING_PAYMENT : CONFIRMED,
         is_course = isCourse ? 1 : 0,
-        deposit_cents = 定金
+        deposit_cents = 定金,
+        verify_code = 商户内唯一的 6 位随机数字
       )
    c. 需支付时 INSERT deposit_transaction(status=PENDING)
 6. 需支付：返回 order_no + 模拟支付参数；否则直接返回已确认预约
@@ -711,6 +724,59 @@ C. 其它状态 → 40902
 - 按 `appointment_time DESC, id DESC` 排序。
 - 服务项目/资源名称通过批量查询补充，避免列表 N+1；关联数据被删除时对应字段返回 `null`。
 - 本次不返回商户名称，仅返回 `merchantId`。
+- 状态为 `CONFIRMED`/`COMPLETED` 时返回 `verifyCode`（核销码），其余状态返回 `null`。
+
+### 8.8 到店核销（核销码）
+
+接口（商户登录，`@SaCheckRole(value={"ADMIN","STAFF"}, mode=OR)`）：
+
+- `GET /api/v1/admin/reservations`：核销单分页查询，参数 `page`/`size`/`status`/`verifyCode`/`keyword`/`startDate`/`endDate`；`keyword` 匹配预约单号、核销码、顾客手机号/昵称。
+- `GET /api/v1/admin/reservations/{id}`：核销单详情，跨商户访问返回 `40401`。
+- `POST /api/v1/admin/reservations/verify`：凭核销码核销。
+
+请求：
+
+```json
+{ "verifyCode": "773475" }
+```
+
+响应（节选）：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "reservationId": 15,
+    "reservationNo": "R20261125032854830368",
+    "verifyCode": "773475",
+    "status": "COMPLETED",
+    "customerId": 11,
+    "customerPhone": "13900009999",
+    "appointmentTime": "2026-11-26 09:00:00",
+    "serviceItemName": "头疗",
+    "resourceName": "美容师A",
+    "verifiedAt": "2026-11-25 03:28:58",
+    "verifiedBy": 1
+  }
+}
+```
+
+伪代码（ReservationService.verify）：
+
+```text
+1. merchantId/operatorId 取自登录态，核销码只在「本商户」内查找
+2. 查不到 → 40401「核销码不存在」
+3. 状态不是 CONFIRMED → 40902，按状态给出具体文案（未支付/已核销/已取消等）
+4. UPDATE reservation SET status='COMPLETED', verified_at=NOW(), verified_by=?
+   WHERE merchant_id=? AND verify_code=? AND status='CONFIRMED'
+5. 影响行数=0 → 并发下已被其他终端核销，重新查询后返回 40902「该预约已核销」
+6. 写 audit_log（action=VERIFY_RESERVATION），返回核销结果
+```
+
+- 核销码在创建预约时生成（6 位数字，商户内唯一，唯一索引 `uk_merchant_verify_code`）；普通预约支付成功转 `CONFIRMED` 后才对顾客可见。
+- 历史预约由迁移 `V12__backfill_reservation_verify_code.sql` 按 id 确定性补码，保证老数据同样可核销。
+- 状态条件更新天然互斥，可防止重复核销与并发竞争。
 
 ## 9. 鉴权与数据隔离
 

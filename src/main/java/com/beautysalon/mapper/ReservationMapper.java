@@ -49,6 +49,41 @@ public interface ReservationMapper extends BaseMapper<Reservation> {
             """)
     ReservationStatsResponse countStatsByCustomerId(@Param("customerId") Long customerId);
 
+    /** 统计商户内某核销码是否已存在（生成核销码时去重） */
+    @Select("""
+            SELECT COUNT(*)
+            FROM reservation
+            WHERE merchant_id = #{merchantId} AND verify_code = #{verifyCode}
+            """)
+    long countByMerchantAndVerifyCode(@Param("merchantId") Long merchantId,
+                                      @Param("verifyCode") String verifyCode);
+
+    /** 按商户 + 核销码查询预约单（商户数据隔离） */
+    @Select("""
+            SELECT *
+            FROM reservation
+            WHERE merchant_id = #{merchantId} AND verify_code = #{verifyCode}
+            LIMIT 1
+            """)
+    Reservation selectByMerchantAndVerifyCode(@Param("merchantId") Long merchantId,
+                                              @Param("verifyCode") String verifyCode);
+
+    /**
+     * 核销预约：CONFIRMED → COMPLETED
+     *
+     * <p>原子更新，重复核销或状态不符时影响行数为 0。</p>
+     */
+    @Update("""
+            UPDATE reservation
+            SET status = 'COMPLETED', verified_at = NOW(), verified_by = #{operatorId}
+            WHERE merchant_id = #{merchantId}
+              AND verify_code = #{verifyCode}
+              AND status = 'CONFIRMED'
+            """)
+    int verifyByCode(@Param("merchantId") Long merchantId,
+                     @Param("verifyCode") String verifyCode,
+                     @Param("operatorId") Long operatorId);
+
     /**
      * 支付成功确认预约：只有 PENDING_PAYMENT 才能流转，重复回调影响行数为 0。
      */
